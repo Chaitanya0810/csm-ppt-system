@@ -1,337 +1,605 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-<title>CSM PPT Submission</title>
+    <title>CSM PPT Submission</title>
 
-<style>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-* {
-    box-sizing: border-box;
-}
+        body {
+            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            background: #f4f7fb;
+            color: #1f2937;
+        }
 
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f4f7fb;
-    color: #1f2937;
-}
+        .container {
+            width: 100%;
+            max-width: 650px;
+            margin: 50px auto;
+            padding: 20px;
+        }
 
-.container {
-    max-width: 650px;
-    margin: 50px auto;
-    padding: 20px;
-}
+        .card {
+            background: white;
+            border-radius: 18px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
 
-.card {
-    background: white;
-    padding: 30px;
-    border-radius: 16px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.08);
-}
+        h1 {
+            text-align: center;
+            margin-bottom: 8px;
+        }
 
-h1 {
-    text-align: center;
-    margin-top: 0;
-}
+        .subtitle {
+            text-align: center;
+            color: #6b7280;
+            margin-bottom: 28px;
+        }
 
-.subtitle {
-    text-align: center;
-    color: #6b7280;
-    margin-bottom: 30px;
-}
+        .form-group {
+            margin-bottom: 20px;
+        }
 
-label {
-    display: block;
-    margin-top: 18px;
-    margin-bottom: 7px;
-    font-weight: bold;
-}
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
 
-select,
-input {
-    width: 100%;
-    padding: 13px;
-    border: 1px solid #d1d5db;
-    border-radius: 9px;
-    font-size: 15px;
-}
+        select,
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            background: white;
+            font-size: 15px;
+        }
 
-button {
-    width: 100%;
-    margin-top: 25px;
-    padding: 14px;
-    border: none;
-    border-radius: 9px;
-    background: #2563eb;
-    color: white;
-    font-size: 16px;
-    font-weight: bold;
-    cursor: pointer;
-}
+        select:focus,
+        input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
 
-button:disabled {
-    background: #9ca3af;
-}
+        button {
+            width: 100%;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            background: #2563eb;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
 
-.status {
-    margin-top: 20px;
-    padding: 12px;
-    border-radius: 8px;
-    display: none;
-}
+        button:hover {
+            background: #1d4ed8;
+        }
 
-.success {
-    display: block;
-    background: #dcfce7;
-    color: #166534;
-}
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
 
-.error {
-    display: block;
-    background: #fee2e2;
-    color: #991b1b;
-}
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+        }
 
-.progress {
-    display: none;
-    margin-top: 18px;
-}
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+        }
 
-.progress-text {
-    text-align: center;
-    margin-bottom: 8px;
-}
+        .progress {
+            width: 0%;
+            height: 100%;
+            background: #2563eb;
+            transition: width 0.2s;
+        }
 
-.progress-track {
-    width: 100%;
-    height: 8px;
-    background: #e5e7eb;
-    border-radius: 20px;
-    overflow: hidden;
-}
+        #status {
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
 
-.progress-bar {
-    width: 0%;
-    height: 100%;
-    background: #2563eb;
-    transition: width .15s;
-}
+        .success {
+            color: #15803d;
+        }
 
-</style>
+        .error {
+            color: #dc2626;
+        }
+
+        .info {
+            color: #2563eb;
+        }
+
+        .file-name {
+            margin-top: 8px;
+            color: #6b7280;
+            font-size: 14px;
+        }
+    </style>
 </head>
 
 <body>
 
 <div class="container">
 
-<div class="card">
+    <div class="card">
 
-<h1>CSM PPT Submission</h1>
+        <h1>CSM PPT Submission</h1>
 
-<div class="subtitle">
-Submit your presentation
-</div>
+        <p class="subtitle">
+            Upload your presentation directly to Google Drive
+        </p>
 
+        <!-- ROLL NUMBER -->
 
-<label>Roll Number</label>
+        <div class="form-group">
 
-<select id="roll">
-<option value="">Select Roll Number</option>
-</select>
+            <label for="roll">
+                Roll Number
+            </label>
 
+            <select id="roll">
 
-<label>Presentation Type</label>
+                <option value="">
+                    Select Roll Number
+                </option>
 
-<select id="category">
-<option value="">Select Type</option>
-<option value="Lab">Lab</option>
-<option value="Theory">Theory</option>
-<option value="Project">Project</option>
-</select>
+            </select>
 
-
-<label>Subject</label>
-
-<select id="subject" disabled>
-<option value="">Select Subject</option>
-</select>
+        </div>
 
 
-<label>Select PPT</label>
+        <!-- CATEGORY -->
 
-<input
-    id="ppt"
-    type="file"
-    accept=".ppt,.pptx"
->
+        <div class="form-group">
+
+            <label for="category">
+                Presentation Type
+            </label>
+
+            <select id="category">
+
+                <option value="">
+                    Select Type
+                </option>
+
+                <option value="Lab">
+                    Lab
+                </option>
+
+                <option value="Theory">
+                    Theory
+                </option>
+
+                <option value="Project">
+                    Project
+                </option>
+
+            </select>
+
+        </div>
 
 
-<div class="progress" id="progress">
+        <!-- SUBJECT -->
 
-<div class="progress-text" id="progressText">
-Uploading...
-</div>
+        <div class="form-group">
 
-<div class="progress-track">
+            <label for="subject">
+                Subject
+            </label>
 
-<div
-    class="progress-bar"
-    id="progressBar">
-</div>
+            <select id="subject">
 
-</div>
+                <option value="">
+                    Select Subject
+                </option>
 
-</div>
+            </select>
 
-
-<button id="uploadBtn">
-Upload PPT
-</button>
+        </div>
 
 
-<div id="status" class="status"></div>
+        <!-- FILE -->
 
-</div>
+        <div class="form-group">
+
+            <label for="file">
+                PPT / PPTX
+            </label>
+
+            <input
+                type="file"
+                id="file"
+                accept=".ppt,.pptx"
+            >
+
+            <div
+                class="file-name"
+                id="fileName"
+            ></div>
+
+        </div>
+
+
+        <!-- UPLOAD BUTTON -->
+
+        <button
+            id="uploadButton"
+            type="button"
+        >
+            Upload PPT
+        </button>
+
+
+        <!-- PROGRESS -->
+
+        <div
+            class="progress-container"
+            id="progressContainer"
+        >
+
+            <div class="progress-bar">
+
+                <div
+                    class="progress"
+                    id="progress"
+                ></div>
+
+            </div>
+
+        </div>
+
+
+        <!-- STATUS -->
+
+        <div id="status"></div>
+
+    </div>
 
 </div>
 
 
 <script>
 
-const roll =
+/* =========================================================
+   ROLL NUMBERS
+========================================================= */
+
+const ROLLS = [
+
+    "257R1A66C9",
+
+    "257R1A66D0",
+    "257R1A66D1",
+    "257R1A66D2",
+    "257R1A66D3",
+    "257R1A66D4",
+    "257R1A66D5",
+    "257R1A66D6",
+    "257R1A66D7",
+    "257R1A66D8",
+    "257R1A66D9",
+
+    "257R1A66E0",
+    "257R1A66E1",
+    "257R1A66E2",
+    "257R1A66E3",
+    "257R1A66E4",
+    "257R1A66E5",
+    "257R1A66E6",
+    "257R1A66E7",
+    "257R1A66E8",
+    "257R1A66E9",
+
+    "257R1A66F0",
+    "257R1A66F1",
+    "257R1A66F2",
+    "257R1A66F3",
+    "257R1A66F4",
+    "257R1A66F5",
+    "257R1A66F6",
+    "257R1A66F7",
+    "257R1A66F8",
+    "257R1A66F9",
+
+    "257R1A66G0",
+    "257R1A66G1",
+    "257R1A66G2",
+    "257R1A66G3",
+    "257R1A66G4",
+    "257R1A66G5",
+    "257R1A66G6",
+    "257R1A66G7",
+    "257R1A66G8",
+    "257R1A66G9",
+
+    "257R1A66H0",
+    "257R1A66H1",
+    "257R1A66H2",
+    "257R1A66H3",
+    "257R1A66H4",
+    "257R1A66H5",
+    "257R1A66H6",
+    "257R1A66H7",
+    "257R1A66H8",
+    "257R1A66H9",
+
+    "257R1A66J0",
+    "257R1A66J1",
+    "257R1A66J3",
+    "257R1A66J4",
+    "257R1A66J6",
+    "257R1A66J7",
+    "257R1A66J8",
+    "257R1A66J9",
+
+    "257R1A66K0",
+    "257R1A66K1",
+    "257R1A66K2",
+
+    "267R5A6615",
+    "267R5A6616",
+    "267R5A6617",
+    "267R5A6618",
+    "267R5A6619",
+    "267R5A6620",
+    "267R5A6621",
+    "267R5A6622"
+
+];
+
+
+/* =========================================================
+   SUBJECT STRUCTURE
+========================================================= */
+
+const STRUCTURE = {
+
+    Lab: [
+        "Node-JS",
+        "CM",
+        "JAVA",
+        "DBMS",
+        "SE",
+        "GS"
+    ],
+
+    Theory: [
+        "MSF",
+        "JAVA",
+        "COA",
+        "DBMS",
+        "SE"
+    ],
+
+    Project: [
+        "Node-JS",
+        "CM",
+        "JAVA",
+        "DBMS",
+        "SE"
+    ]
+
+};
+
+
+/* =========================================================
+   ELEMENTS
+========================================================= */
+
+const rollSelect =
     document.getElementById("roll");
 
-const category =
+const categorySelect =
     document.getElementById("category");
 
-const subject =
+const subjectSelect =
     document.getElementById("subject");
 
-const ppt =
-    document.getElementById("ppt");
+const fileInput =
+    document.getElementById("file");
 
-const uploadBtn =
-    document.getElementById("uploadBtn");
+const uploadButton =
+    document.getElementById("uploadButton");
 
-const statusBox =
+const status =
     document.getElementById("status");
 
+const progressContainer =
+    document.getElementById(
+        "progressContainer"
+    );
+
 const progress =
-    document.getElementById("progress");
+    document.getElementById(
+        "progress"
+    );
 
-const progressBar =
-    document.getElementById("progressBar");
-
-const progressText =
-    document.getElementById("progressText");
-
-
-let structure = {};
+const fileName =
+    document.getElementById(
+        "fileName"
+    );
 
 
-/* CONFIG */
+/* =========================================================
+   POPULATE ROLL NUMBERS
+========================================================= */
 
-async function loadConfig() {
+function loadRollNumbers() {
 
-    try {
+    for (
+        let i = 0;
+        i < ROLLS.length;
+        i++
+    ) {
 
-        const response =
-            await fetch("/api/config");
+        const option =
+            document.createElement(
+                "option"
+            );
 
-        const data =
-            await response.json();
+        option.value =
+            ROLLS[i];
 
-        structure =
-            data.structure;
+        option.textContent =
+            ROLLS[i];
 
-
-        data.rolls.forEach(
-            function(item) {
-
-                const option =
-                    document.createElement("option");
-
-                option.value = item;
-                option.textContent = item;
-
-                roll.appendChild(option);
-            }
+        rollSelect.appendChild(
+            option
         );
 
-    } catch (error) {
-
-        showStatus(
-            "Unable to connect to server.",
-            "error"
-        );
     }
+
 }
 
 
-/* CATEGORY */
+/* =========================================================
+   CATEGORY → SUBJECTS
+========================================================= */
 
-category.addEventListener(
+categorySelect.addEventListener(
     "change",
-    function() {
+    function () {
 
-        subject.innerHTML =
+        subjectSelect.innerHTML =
             '<option value="">Select Subject</option>';
 
-        subject.disabled =
-            !this.value;
+        const category =
+            categorySelect.value;
 
+        if (
+            !category ||
+            !STRUCTURE[category]
+        ) {
 
-        if (!this.value) {
             return;
+
         }
 
+        const subjects =
+            STRUCTURE[category];
 
-        structure[this.value].forEach(
-            function(item) {
+        for (
+            let i = 0;
+            i < subjects.length;
+            i++
+        ) {
 
-                const option =
-                    document.createElement("option");
+            const option =
+                document.createElement(
+                    "option"
+                );
 
-                option.value = item;
-                option.textContent = item;
+            option.value =
+                subjects[i];
 
-                subject.appendChild(option);
-            }
-        );
+            option.textContent =
+                subjects[i];
+
+            subjectSelect.appendChild(
+                option
+            );
+
+        }
+
     }
 );
 
 
-/* STATUS */
+/* =========================================================
+   FILE NAME
+========================================================= */
+
+fileInput.addEventListener(
+    "change",
+    function () {
+
+        if (
+            fileInput.files.length > 0
+        ) {
+
+            fileName.textContent =
+                "Selected: " +
+                fileInput.files[0].name;
+
+        } else {
+
+            fileName.textContent =
+                "";
+
+        }
+
+    }
+);
+
+
+/* =========================================================
+   STATUS
+========================================================= */
 
 function showStatus(
     message,
     type
 ) {
 
-    statusBox.textContent =
+    status.textContent =
         message;
 
-    statusBox.className =
-        "status " + type;
+    status.className =
+        type || "";
+
 }
 
 
-/* UPLOAD */
+/* =========================================================
+   UPLOAD
+========================================================= */
 
-uploadBtn.addEventListener(
+uploadButton.addEventListener(
     "click",
-    function() {
+    function () {
 
-        const selectedFile =
-            ppt.files[0];
+        const roll =
+            rollSelect.value;
+
+        const category =
+            categorySelect.value;
+
+        const subject =
+            subjectSelect.value;
+
+        const file =
+            fileInput.files[0];
 
 
-        if (!roll.value) {
+        /* ---------------------------------------------
+           VALIDATION
+        --------------------------------------------- */
+
+        if (!roll) {
 
             showStatus(
                 "Please select your roll number.",
@@ -339,10 +607,10 @@ uploadBtn.addEventListener(
             );
 
             return;
+
         }
 
-
-        if (!category.value) {
+        if (!category) {
 
             showStatus(
                 "Please select presentation type.",
@@ -350,10 +618,10 @@ uploadBtn.addEventListener(
             );
 
             return;
+
         }
 
-
-        if (!subject.value) {
+        if (!subject) {
 
             showStatus(
                 "Please select subject.",
@@ -361,10 +629,10 @@ uploadBtn.addEventListener(
             );
 
             return;
+
         }
 
-
-        if (!selectedFile) {
+        if (!file) {
 
             showStatus(
                 "Please select a PPT file.",
@@ -372,64 +640,85 @@ uploadBtn.addEventListener(
             );
 
             return;
+
         }
 
 
         if (
-            !/\.(ppt|pptx)$/i
-                .test(selectedFile.name)
+            !/\.(ppt|pptx)$/i.test(
+                file.name
+            )
         ) {
 
             showStatus(
-                "Only PPT/PPTX files are allowed.",
+                "Only PPT and PPTX files are allowed.",
                 "error"
             );
 
             return;
+
         }
 
 
-        uploadBtn.disabled = true;
-
-        progress.style.display =
-            "block";
-
-        progressBar.style.width =
-            "0%";
-
-        progressText.textContent =
-            "Uploading PPT...";
-
+        /* ---------------------------------------------
+           PREPARE FORM DATA
+        --------------------------------------------- */
 
         const formData =
             new FormData();
 
-
         formData.append(
             "roll",
-            roll.value
+            roll
         );
 
         formData.append(
             "category",
-            category.value
+            category
         );
 
         formData.append(
             "subject",
-            subject.value
+            subject
         );
-
-        formData.append(
-            "ppt",
-            selectedFile
-        );
-
 
         /*
-          XMLHttpRequest is used here
-          so we can display real upload progress.
+           IMPORTANT:
+
+           We are sending the actual file.
+
+           NO BASE64.
         */
+
+        formData.append(
+            "file",
+            file
+        );
+
+
+        /* ---------------------------------------------
+           UI
+        --------------------------------------------- */
+
+        uploadButton.disabled =
+            true;
+
+        progressContainer.style.display =
+            "block";
+
+        progress.style.width =
+            "0%";
+
+        showStatus(
+            "Uploading PPT...",
+            "info"
+        );
+
+
+        /* ---------------------------------------------
+           XMLHttpRequest
+           Used so we can show upload progress.
+        --------------------------------------------- */
 
         const xhr =
             new XMLHttpRequest();
@@ -437,132 +726,159 @@ uploadBtn.addEventListener(
 
         xhr.open(
             "POST",
-            "/api/upload"
+            "/api/upload",
+            true
         );
 
 
+        /* ---------------------------------------------
+           UPLOAD PROGRESS
+        --------------------------------------------- */
+
         xhr.upload.onprogress =
-            function(event) {
+            function (event) {
 
-                if (!event.lengthComputable) {
-                    return;
-                }
+                if (
+                    event.lengthComputable
+                ) {
 
+                    const percent =
+                        Math.round(
+                            (
+                                event.loaded /
+                                event.total
+                            ) * 100
+                        );
 
-                const percent =
-                    Math.round(
-                        event.loaded /
-                        event.total *
-                        100
+                    progress.style.width =
+                        percent + "%";
+
+                    showStatus(
+                        "Uploading... " +
+                        percent +
+                        "%",
+                        "info"
                     );
 
+                }
 
-                progressBar.style.width =
-                    percent + "%";
-
-                progressText.textContent =
-                    `Uploading... ${percent}%`;
             };
 
 
-        xhr.onload =
-            function() {
+        /* ---------------------------------------------
+           RESPONSE
+        --------------------------------------------- */
 
-                uploadBtn.disabled =
+        xhr.onload =
+            function () {
+
+                uploadButton.disabled =
                     false;
 
-
-                let data;
-
+                let response;
 
                 try {
 
-                    data =
+                    response =
                         JSON.parse(
                             xhr.responseText
                         );
 
-                } catch {
+                } catch (error) {
 
                     showStatus(
-                        "Server returned an invalid response.",
+                        "Invalid server response.",
                         "error"
                     );
 
-                    progress.style.display =
-                        "none";
-
                     return;
+
                 }
 
 
                 if (
                     xhr.status >= 200 &&
                     xhr.status < 300 &&
-                    data.ok
+                    response.ok
                 ) {
 
-                    progressBar.style.width =
+                    progress.style.width =
                         "100%";
 
-                    progressText.textContent =
-                        "Upload complete";
-
-
                     showStatus(
-                        "PPT uploaded successfully.",
+                        "PPT uploaded successfully!",
                         "success"
                     );
 
 
-                    ppt.value = "";
+                    /*
+                       Reset form
+                    */
+
+                    rollSelect.value =
+                        "";
+
+                    categorySelect.value =
+                        "";
+
+                    subjectSelect.innerHTML =
+                        '<option value="">Select Subject</option>';
+
+                    fileInput.value =
+                        "";
+
+                    fileName.textContent =
+                        "";
+
 
                 } else {
 
                     showStatus(
-                        data.error ||
+                        response.error ||
                         "Upload failed.",
                         "error"
                     );
+
                 }
 
-
-                setTimeout(
-                    function() {
-
-                        progress.style.display =
-                            "none";
-
-                    },
-                    1200
-                );
             };
 
+
+        /* ---------------------------------------------
+           NETWORK ERROR
+        --------------------------------------------- */
 
         xhr.onerror =
-            function() {
+            function () {
 
-                uploadBtn.disabled =
+                uploadButton.disabled =
                     false;
 
-
-                progress.style.display =
-                    "none";
-
-
                 showStatus(
-                    "Could not connect to the server.",
+                    "Network error. Please try again.",
                     "error"
                 );
+
             };
 
 
-        xhr.send(formData);
+        /* ---------------------------------------------
+           SEND
+        --------------------------------------------- */
+
+        xhr.send(
+            formData
+        );
+
     }
 );
 
 
-loadConfig();
+/* =========================================================
+   INITIALIZE
+========================================================= */
+
+loadRollNumbers();
 
 </script>
 
