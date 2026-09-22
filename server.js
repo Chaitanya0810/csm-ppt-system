@@ -27,6 +27,7 @@ const CREDENTIALS_PATH =
 const TOKEN_PATH =
     path.join(__dirname, "token.json");
 
+
 /* =========================================================
    FOLDER STRUCTURE
 ========================================================= */
@@ -59,6 +60,7 @@ const STRUCTURE = {
     ]
 
 };
+
 
 /* =========================================================
    ROLL NUMBERS
@@ -146,6 +148,7 @@ const ROLLS = [
 
 ];
 
+
 /* =========================================================
    MIDDLEWARE
 ========================================================= */
@@ -169,6 +172,7 @@ app.use(
         path.join(__dirname, "public")
     )
 );
+
 
 /* =========================================================
    MULTER
@@ -212,11 +216,13 @@ const upload = multer({
 
 });
 
+
 /* =========================================================
    GOOGLE OAUTH
 ========================================================= */
 
 let drive;
+
 
 /*
     LOCAL:
@@ -228,15 +234,19 @@ let drive;
 
     GOOGLE_OAUTH_CREDENTIALS_JSON
     GOOGLE_OAUTH_TOKEN_JSON
+
+    IMPORTANT:
+    NO SERVICE ACCOUNT IS USED.
 */
 
 async function initializeGoogleDrive() {
 
     let auth;
 
-    /* -----------------------------------------------------
+
+    /* =====================================================
        RENDER / ENVIRONMENT
-    ----------------------------------------------------- */
+    ===================================================== */
 
     if (
         process.env.GOOGLE_OAUTH_CREDENTIALS_JSON &&
@@ -262,7 +272,9 @@ async function initializeGoogleDrive() {
                     process.env.GOOGLE_OAUTH_TOKEN_JSON
                 );
 
-        } catch (error) {
+        }
+
+        catch (error) {
 
             console.error(
                 "Invalid OAuth environment variables."
@@ -272,9 +284,11 @@ async function initializeGoogleDrive() {
 
         }
 
+
         const installed =
             credentials.installed ||
             credentials.web;
+
 
         if (!installed) {
 
@@ -283,6 +297,7 @@ async function initializeGoogleDrive() {
             );
 
         }
+
 
         const clientId =
             installed.client_id;
@@ -296,6 +311,7 @@ async function initializeGoogleDrive() {
         const redirectUri =
             redirectUris[0];
 
+
         auth =
             new google.auth.OAuth2(
                 clientId,
@@ -303,15 +319,17 @@ async function initializeGoogleDrive() {
                 redirectUri
             );
 
+
         auth.setCredentials(
             token
         );
 
     }
 
-    /* -----------------------------------------------------
+
+    /* =====================================================
        LOCAL DEVELOPMENT
-    ----------------------------------------------------- */
+    ===================================================== */
 
     else {
 
@@ -327,6 +345,7 @@ async function initializeGoogleDrive() {
 
         }
 
+
         if (
             fs.existsSync(
                 TOKEN_PATH
@@ -337,6 +356,7 @@ async function initializeGoogleDrive() {
                 "Using saved Google OAuth token."
             );
 
+
             const credentials =
                 JSON.parse(
                     fs.readFileSync(
@@ -344,6 +364,7 @@ async function initializeGoogleDrive() {
                         "utf8"
                     )
                 );
+
 
             const token =
                 JSON.parse(
@@ -353,22 +374,30 @@ async function initializeGoogleDrive() {
                     )
                 );
 
+
             const installed =
                 credentials.installed ||
                 credentials.web;
 
+
             auth =
                 new google.auth.OAuth2(
+
                     installed.client_id,
+
                     installed.client_secret,
+
                     installed.redirect_uris[0]
+
                 );
+
 
             auth.setCredentials(
                 token
             );
 
         }
+
 
         else {
 
@@ -387,6 +416,7 @@ async function initializeGoogleDrive() {
             );
             console.log("");
 
+
             auth =
                 await authenticate({
 
@@ -397,14 +427,19 @@ async function initializeGoogleDrive() {
 
                 });
 
+
             fs.writeFileSync(
+
                 TOKEN_PATH,
+
                 JSON.stringify(
                     auth.credentials,
                     null,
                     2
                 )
+
             );
+
 
             console.log(
                 "Google OAuth token saved."
@@ -414,17 +449,27 @@ async function initializeGoogleDrive() {
 
     }
 
+
+    /* =====================================================
+       GOOGLE DRIVE CLIENT
+    ===================================================== */
+
     drive =
         google.drive({
+
             version: "v3",
+
             auth: auth
+
         });
+
 
     console.log(
         "Google Drive OAuth initialized."
     );
 
 }
+
 
 /* =========================================================
    HEALTH
@@ -439,12 +484,16 @@ app.get(
             if (!drive) {
 
                 return res.status(503).json({
+
                     ok: false,
+
                     error:
                         "Google Drive is still initializing."
+
                 });
 
             }
+
 
             const response =
                 await drive.files.get({
@@ -456,6 +505,7 @@ app.get(
                         "id,name,mimeType"
 
                 });
+
 
             res.json({
 
@@ -478,6 +528,7 @@ app.get(
                 error
             );
 
+
             res.status(500).json({
 
                 ok: false,
@@ -491,6 +542,7 @@ app.get(
 
     }
 );
+
 
 /* =========================================================
    FIND FOLDER
@@ -518,6 +570,7 @@ async function findFolder(
 
         });
 
+
     if (
         !response.data.files ||
         response.data.files.length === 0
@@ -529,9 +582,11 @@ async function findFolder(
 
     }
 
+
     return response.data.files[0];
 
 }
+
 
 /* =========================================================
    GET SUBJECT FOLDER
@@ -552,6 +607,7 @@ async function getSubjectFolder(
 
     }
 
+
     if (
         STRUCTURE[category]
             .indexOf(subject) === -1
@@ -563,21 +619,31 @@ async function getSubjectFolder(
 
     }
 
+
     const categoryFolder =
         await findFolder(
+
             ROOT_FOLDER_ID,
+
             category
+
         );
+
 
     const subjectFolder =
         await findFolder(
+
             categoryFolder.id,
+
             subject
+
         );
+
 
     return subjectFolder;
 
 }
+
 
 /* =========================================================
    DUPLICATE CHECK
@@ -603,11 +669,14 @@ async function checkDuplicate(
 
         });
 
+
     const files =
         response.data.files || [];
 
+
     const prefix =
         roll.toUpperCase() + "_";
+
 
     for (
         let i = 0;
@@ -620,6 +689,7 @@ async function checkDuplicate(
                 files[i].name || ""
             ).toUpperCase();
 
+
         if (
             name.indexOf(prefix) === 0
         ) {
@@ -630,9 +700,11 @@ async function checkDuplicate(
 
     }
 
+
     return null;
 
 }
+
 
 /* =========================================================
    UPLOAD PPT
@@ -640,10 +712,13 @@ async function checkDuplicate(
 
 app.post(
     "/api/upload",
+
     upload.single("file"),
+
     async function (req, res) {
 
         let temporaryFile = null;
+
 
         try {
 
@@ -660,8 +735,10 @@ app.post(
 
             }
 
+
             temporaryFile =
                 req.file.path;
+
 
             const roll =
                 String(
@@ -670,17 +747,20 @@ app.post(
                 .trim()
                 .toUpperCase();
 
+
             const subject =
                 String(
                     req.body.subject || ""
                 )
                 .trim();
 
+
             const category =
                 String(
                     req.body.category || ""
                 )
                 .trim();
+
 
             /* VALIDATE ROLL */
 
@@ -697,6 +777,7 @@ app.post(
 
             }
 
+
             if (
                 ROLLS.indexOf(roll) === -1
             ) {
@@ -711,6 +792,7 @@ app.post(
                 });
 
             }
+
 
             /* VALIDATE CATEGORY */
 
@@ -730,6 +812,7 @@ app.post(
 
             }
 
+
             /* VALIDATE SUBJECT */
 
             if (
@@ -748,21 +831,30 @@ app.post(
 
             }
 
+
             /* FIND FOLDER */
 
             const folder =
                 await getSubjectFolder(
+
                     category,
+
                     subject
+
                 );
+
 
             /* DUPLICATE */
 
             const duplicate =
                 await checkDuplicate(
+
                     folder.id,
+
                     roll
+
                 );
+
 
             if (duplicate) {
 
@@ -779,6 +871,7 @@ app.post(
 
             }
 
+
             /* FILE NAME */
 
             const cleanName =
@@ -786,19 +879,23 @@ app.post(
                     req.file.originalname
                 );
 
+
             const safeSubject =
                 subject.replace(
                     /[^a-zA-Z0-9-]/g,
                     "_"
                 );
 
+
             const finalName =
                 `${roll}_${safeSubject}_${category}_${cleanName}`;
+
 
             /* MIME */
 
             let mimeType =
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
 
             if (
                 /\.ppt$/i.test(
@@ -810,6 +907,7 @@ app.post(
                     "application/vnd.ms-powerpoint";
 
             }
+
 
             /* GOOGLE DRIVE UPLOAD */
 
@@ -847,8 +945,10 @@ app.post(
 
                 });
 
+
             const file =
                 response.data;
+
 
             /* PUBLIC VIEW */
 
@@ -882,17 +982,22 @@ app.post(
 
             }
 
+
             const presentationUrl =
                 `https://docs.google.com/presentation/d/${file.id}/edit`;
 
+
             const driveUrl =
                 `https://drive.google.com/file/d/${file.id}/view`;
+
 
             safeDelete(
                 temporaryFile
             );
 
+
             temporaryFile = null;
+
 
             res.json({
 
@@ -926,12 +1031,14 @@ app.post(
 
         }
 
+
         catch (error) {
 
             console.error(
                 "UPLOAD ERROR:",
                 error
             );
+
 
             if (
                 temporaryFile
@@ -942,6 +1049,7 @@ app.post(
                 );
 
             }
+
 
             res.status(500).json({
 
@@ -956,7 +1064,9 @@ app.post(
         }
 
     }
+
 );
+
 
 /* =========================================================
    GET PPTs
@@ -964,6 +1074,7 @@ app.post(
 
 app.get(
     "/api/ppts",
+
     async function (req, res) {
 
         try {
@@ -973,10 +1084,12 @@ app.get(
                     req.query.subject || ""
                 ).trim();
 
+
             const category =
                 String(
                     req.query.category || ""
                 ).trim();
+
 
             if (
                 !STRUCTURE[category]
@@ -992,6 +1105,7 @@ app.get(
                 });
 
             }
+
 
             if (
                 STRUCTURE[category]
@@ -1009,11 +1123,16 @@ app.get(
 
             }
 
+
             const folder =
                 await getSubjectFolder(
+
                     category,
+
                     subject
+
                 );
+
 
             const response =
                 await drive.files.list({
@@ -1033,10 +1152,13 @@ app.get(
 
                 });
 
+
             const files =
                 response.data.files || [];
 
+
             const submissions = [];
+
 
             for (
                 let i = 0;
@@ -1046,6 +1168,7 @@ app.get(
 
                 const file =
                     files[i];
+
 
                 if (
                     !/\.(ppt|pptx)$/i.test(
@@ -1057,16 +1180,19 @@ app.get(
 
                 }
 
+
                 const roll =
                     extractRoll(
                         file.name
                     );
+
 
                 if (!roll) {
 
                     continue;
 
                 }
+
 
                 submissions.push({
 
@@ -1092,18 +1218,25 @@ app.get(
 
             }
 
+
             /* SORT BY ROLL */
 
             submissions.sort(
+
                 function (a, b) {
 
                     return (
+
                         ROLLS.indexOf(a.roll) -
+
                         ROLLS.indexOf(b.roll)
+
                     );
 
                 }
+
             );
+
 
             res.json({
 
@@ -1128,12 +1261,14 @@ app.get(
 
         }
 
+
         catch (error) {
 
             console.error(
                 "GET PPT ERROR:",
                 error
             );
+
 
             res.status(500).json({
 
@@ -1147,7 +1282,9 @@ app.get(
         }
 
     }
+
 );
+
 
 /* =========================================================
    GET STRUCTURE
@@ -1155,6 +1292,7 @@ app.get(
 
 app.get(
     "/api/structure",
+
     function (req, res) {
 
         res.json({
@@ -1168,6 +1306,7 @@ app.get(
 
     }
 );
+
 
 /* =========================================================
    GET CONFIG
@@ -1175,6 +1314,7 @@ app.get(
 
 app.get(
     "/api/config",
+
     function (req, res) {
 
         res.json({
@@ -1188,6 +1328,7 @@ app.get(
 
     }
 );
+
 
 /* =========================================================
    HELPERS
@@ -1201,6 +1342,7 @@ function extractRoll(
         String(
             name || ""
         ).toUpperCase();
+
 
     for (
         let i = 0;
@@ -1220,9 +1362,11 @@ function extractRoll(
 
     }
 
+
     return "";
 
 }
+
 
 /* =========================================================
    CLEAN FILE NAME
@@ -1242,6 +1386,7 @@ function cleanFileName(
     );
 
 }
+
 
 /* =========================================================
    ESCAPE DRIVE QUERY
@@ -1264,6 +1409,7 @@ function escapeQuery(
     );
 
 }
+
 
 /* =========================================================
    DELETE TEMP FILE
@@ -1299,11 +1445,13 @@ function safeDelete(
 
 }
 
+
 /* =========================================================
    ERROR HANDLER
 ========================================================= */
 
 app.use(
+
     function (
         error,
         req,
@@ -1315,6 +1463,7 @@ app.use(
             "SERVER ERROR:",
             error
         );
+
 
         if (
             error &&
@@ -1332,6 +1481,7 @@ app.use(
 
         }
 
+
         res.status(500).json({
 
             ok: false,
@@ -1343,7 +1493,9 @@ app.use(
         });
 
     }
+
 );
+
 
 /* =========================================================
    START SERVER
@@ -1355,9 +1507,13 @@ async function startServer() {
 
         await initializeGoogleDrive();
 
+
         app.listen(
+
             PORT,
+
             "0.0.0.0",
+
             function () {
 
                 console.log("");
@@ -1391,15 +1547,21 @@ async function startServer() {
                 );
 
                 console.log(
+                    `Config: http://localhost:${PORT}/api/config`
+                );
+
+                console.log(
                     "===================================="
                 );
 
                 console.log("");
 
             }
+
         );
 
     }
+
 
     catch (error) {
 
@@ -1420,5 +1582,6 @@ async function startServer() {
     }
 
 }
+
 
 startServer();
