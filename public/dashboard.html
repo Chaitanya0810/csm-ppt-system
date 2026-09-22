@@ -1,1142 +1,297 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>CSM PPT Dashboard</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 
-    <style>
+<title>CSM PPT Dashboard</title>
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+<style>
 
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --bg: #f5f7fb;
-            --card: #ffffff;
-            --text: #111827;
-            --muted: #6b7280;
-            --border: #e5e7eb;
-            --success: #16a34a;
-            --danger: #dc2626;
-        }
+* {
+    box-sizing: border-box;
+}
 
-        body {
-            font-family:
-                Inter,
-                Arial,
-                Helvetica,
-                sans-serif;
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f4f7fb;
+    color: #1f2937;
+}
 
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-        }
+.header {
+    background: white;
+    padding: 20px 30px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
 
+.header h1 {
+    margin: 0;
+}
 
-        /* =========================
-           HEADER
-        ========================= */
+.controls {
+    max-width: 1200px;
+    margin: 25px auto;
+    padding: 0 20px;
 
-        .header {
-            background: linear-gradient(
-                135deg,
-                #1d4ed8,
-                #2563eb,
-                #3b82f6
-            );
+    display: grid;
 
-            color: white;
-            padding: 24px 5%;
+    grid-template-columns: 1fr 1fr;
 
-            box-shadow:
-                0 5px 20px rgba(37, 99, 235, 0.18);
-        }
+    gap: 15px;
+}
 
-        .header-inner {
-            max-width: 1400px;
-            margin: auto;
+select {
+    padding: 13px;
 
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+    border: 1px solid #d1d5db;
 
-            gap: 20px;
-        }
+    border-radius: 9px;
 
-        .brand h1 {
-            font-size: 27px;
-            margin-bottom: 5px;
-        }
+    background: white;
 
-        .brand p {
-            opacity: 0.85;
-            font-size: 14px;
-        }
+    font-size: 15px;
+}
 
-        .refresh-btn {
-            border: 1px solid rgba(255,255,255,0.35);
+.container {
+    max-width: 1200px;
 
-            background: rgba(255,255,255,0.15);
+    margin: auto;
 
-            color: white;
+    padding: 0 20px 40px;
+}
 
-            padding: 11px 18px;
+.info {
+    margin-bottom: 20px;
 
-            border-radius: 10px;
+    color: #6b7280;
+}
 
-            cursor: pointer;
+.grid {
+    display: grid;
 
-            font-weight: bold;
+    grid-template-columns:
+        repeat(auto-fill, minmax(280px, 1fr));
 
-            transition: 0.2s;
-        }
+    gap: 18px;
+}
 
-        .refresh-btn:hover {
-            background: rgba(255,255,255,0.25);
-        }
+.card {
+    background: white;
 
+    border-radius: 14px;
 
-        /* =========================
-           MAIN
-        ========================= */
+    padding: 20px;
 
-        .main {
-            max-width: 1400px;
-            margin: 30px auto;
+    box-shadow:
+        0 5px 20px rgba(0,0,0,.07);
+}
 
-            padding: 0 20px;
-        }
+.roll {
+    font-size: 18px;
 
+    font-weight: bold;
 
-        /* =========================
-           STATS
-        ========================= */
+    margin-bottom: 10px;
+}
 
-        .stats {
-            display: grid;
+.filename {
+    font-size: 13px;
 
-            grid-template-columns:
-                repeat(4, 1fr);
+    color: #6b7280;
 
-            gap: 18px;
+    word-break: break-word;
 
-            margin-bottom: 25px;
-        }
+    min-height: 40px;
+}
 
-        .stat-card {
-            background: var(--card);
+.open {
+    display: block;
 
-            border: 1px solid var(--border);
+    margin-top: 15px;
 
-            border-radius: 15px;
+    padding: 11px;
 
-            padding: 22px;
+    text-align: center;
 
-            box-shadow:
-                0 5px 18px rgba(0,0,0,0.04);
-        }
+    background: #2563eb;
 
-        .stat-label {
-            color: var(--muted);
-            font-size: 13px;
+    color: white;
 
-            margin-bottom: 8px;
-        }
+    text-decoration: none;
 
-        .stat-value {
-            font-size: 28px;
-            font-weight: 800;
-        }
+    border-radius: 8px;
+}
 
+.empty {
+    background: white;
 
-        /* =========================
-           FILTER PANEL
-        ========================= */
+    padding: 40px;
 
-        .filter-card {
-            background: white;
+    text-align: center;
 
-            border: 1px solid var(--border);
+    border-radius: 14px;
 
-            border-radius: 16px;
+    color: #6b7280;
+}
 
-            padding: 22px;
+.loading {
+    text-align: center;
 
-            margin-bottom: 25px;
+    padding: 40px;
+}
 
-            box-shadow:
-                0 5px 18px rgba(0,0,0,0.04);
-        }
+@media(max-width:650px) {
 
-        .filter-title {
-            font-size: 17px;
-            font-weight: bold;
+    .controls {
+        grid-template-columns: 1fr;
+    }
 
-            margin-bottom: 17px;
-        }
+}
 
-        .filters {
-            display: grid;
+</style>
 
-            grid-template-columns:
-                1.5fr
-                1fr
-                1fr
-                1fr
-                auto;
-
-            gap: 12px;
-        }
-
-        .input,
-        .select {
-            width: 100%;
-
-            padding: 12px 13px;
-
-            border:
-                1px solid var(--border);
-
-            border-radius: 10px;
-
-            background: white;
-
-            color: var(--text);
-
-            font-size: 14px;
-        }
-
-        .input:focus,
-        .select:focus {
-            outline: none;
-
-            border-color:
-                var(--primary);
-
-            box-shadow:
-                0 0 0 3px
-                rgba(37,99,235,0.10);
-        }
-
-        .clear-btn {
-            padding: 12px 17px;
-
-            border: none;
-
-            border-radius: 10px;
-
-            background: #111827;
-
-            color: white;
-
-            cursor: pointer;
-
-            font-weight: bold;
-        }
-
-        .clear-btn:hover {
-            background: #374151;
-        }
-
-
-        /* =========================
-           TABLE
-        ========================= */
-
-        .content-card {
-            background: white;
-
-            border:
-                1px solid var(--border);
-
-            border-radius: 16px;
-
-            overflow: hidden;
-
-            box-shadow:
-                0 5px 18px rgba(0,0,0,0.04);
-        }
-
-        .content-header {
-            padding: 20px 22px;
-
-            border-bottom:
-                1px solid var(--border);
-
-            display: flex;
-
-            justify-content: space-between;
-
-            align-items: center;
-        }
-
-        .content-header h2 {
-            font-size: 18px;
-        }
-
-        .result-count {
-            color: var(--muted);
-
-            font-size: 13px;
-        }
-
-        .table-wrapper {
-            width: 100%;
-
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-
-            border-collapse: collapse;
-
-            min-width: 850px;
-        }
-
-        th {
-            text-align: left;
-
-            padding: 14px 18px;
-
-            background: #f9fafb;
-
-            color: #6b7280;
-
-            font-size: 12px;
-
-            text-transform: uppercase;
-
-            letter-spacing: 0.04em;
-        }
-
-        td {
-            padding: 16px 18px;
-
-            border-top:
-                1px solid #f0f1f3;
-
-            font-size: 14px;
-        }
-
-        tr:hover td {
-            background: #fafcff;
-        }
-
-
-        /* =========================
-           BADGES
-        ========================= */
-
-        .badge {
-            display: inline-block;
-
-            padding: 5px 9px;
-
-            border-radius: 20px;
-
-            font-size: 12px;
-
-            font-weight: bold;
-        }
-
-        .badge-lab {
-            background: #eff6ff;
-            color: #2563eb;
-        }
-
-        .badge-theory {
-            background: #f5f3ff;
-            color: #7c3aed;
-        }
-
-        .badge-project {
-            background: #ecfdf5;
-            color: #059669;
-        }
-
-
-        /* =========================
-           FILE LINK
-        ========================= */
-
-        .file-link {
-            color: var(--primary);
-
-            text-decoration: none;
-
-            font-weight: 600;
-        }
-
-        .file-link:hover {
-            text-decoration: underline;
-        }
-
-
-        /* =========================
-           EMPTY / LOADING
-        ========================= */
-
-        .message {
-            padding: 55px 20px;
-
-            text-align: center;
-
-            color: var(--muted);
-        }
-
-        .loading {
-            color: var(--primary);
-
-            font-weight: bold;
-        }
-
-        .error {
-            color: var(--danger);
-
-            font-weight: bold;
-        }
-
-
-        /* =========================
-           MOBILE
-        ========================= */
-
-        @media (max-width: 1000px) {
-
-            .stats {
-                grid-template-columns:
-                    repeat(2, 1fr);
-            }
-
-            .filters {
-                grid-template-columns:
-                    1fr 1fr;
-            }
-
-            .clear-btn {
-                width: 100%;
-            }
-
-        }
-
-
-        @media (max-width: 650px) {
-
-            .header {
-                padding: 20px;
-            }
-
-            .header-inner {
-                align-items: flex-start;
-
-                flex-direction: column;
-            }
-
-            .main {
-                margin-top: 20px;
-
-                padding: 0 12px;
-            }
-
-            .stats {
-                grid-template-columns:
-                    1fr;
-            }
-
-            .filters {
-                grid-template-columns:
-                    1fr;
-            }
-
-            .filter-card,
-            .content-card {
-                border-radius: 12px;
-            }
-
-        }
-
-    </style>
 </head>
 
 
 <body>
 
 
-<!-- =========================
-     HEADER
-========================= -->
+<div class="header">
 
-<header class="header">
+    <h1>
+        CSM PPT Dashboard
+    </h1>
 
-    <div class="header-inner">
-
-        <div class="brand">
-
-            <h1>
-                CSM PPT Dashboard
-            </h1>
-
-            <p>
-                Presentation submission management system
-            </p>
-
-        </div>
+</div>
 
 
-        <button
-            class="refresh-btn"
-            id="refreshBtn"
-        >
-            ↻ Refresh
-        </button>
+
+<div class="controls">
+
+
+    <!-- CATEGORY -->
+
+    <select id="category">
+
+        <option value="">
+            Select Type
+        </option>
+
+        <option value="Lab">
+            Lab
+        </option>
+
+        <option value="Theory">
+            Theory
+        </option>
+
+        <option value="Project">
+            Project
+        </option>
+
+    </select>
+
+
+    <!-- SUBJECT -->
+
+    <select
+        id="subject"
+        disabled
+    >
+
+        <option value="">
+            Select Subject
+        </option>
+
+    </select>
+
+
+</div>
+
+
+
+<div class="container">
+
+
+    <div id="info" class="info">
+
+        Select type and subject.
 
     </div>
 
-</header>
 
+    <div id="content">
 
+        <div class="empty">
 
-<!-- =========================
-     MAIN
-========================= -->
-
-<main class="main">
-
-
-    <!-- =========================
-         STATISTICS
-    ========================= -->
-
-    <section class="stats">
-
-        <div class="stat-card">
-
-            <div class="stat-label">
-                Total Presentations
-            </div>
-
-            <div
-                class="stat-value"
-                id="totalCount"
-            >
-                0
-            </div>
+            No presentation selected.
 
         </div>
 
+    </div>
 
-        <div class="stat-card">
 
-            <div class="stat-label">
-                Lab
-            </div>
-
-            <div
-                class="stat-value"
-                id="labCount"
-            >
-                0
-            </div>
-
-        </div>
-
-
-        <div class="stat-card">
-
-            <div class="stat-label">
-                Theory
-            </div>
-
-            <div
-                class="stat-value"
-                id="theoryCount"
-            >
-                0
-            </div>
-
-        </div>
-
-
-        <div class="stat-card">
-
-            <div class="stat-label">
-                Projects
-            </div>
-
-            <div
-                class="stat-value"
-                id="projectCount"
-            >
-                0
-            </div>
-
-        </div>
-
-    </section>
-
-
-
-    <!-- =========================
-         FILTERS
-    ========================= -->
-
-    <section class="filter-card">
-
-        <div class="filter-title">
-            Filter Presentations
-        </div>
-
-
-        <div class="filters">
-
-
-            <!-- SEARCH -->
-
-            <input
-                type="text"
-                id="searchInput"
-                class="input"
-                placeholder="Search roll number or file name..."
-            >
-
-
-            <!-- TYPE -->
-
-            <select
-                id="typeFilter"
-                class="select"
-            >
-
-                <option value="">
-                    All Types
-                </option>
-
-                <option value="Lab">
-                    Lab
-                </option>
-
-                <option value="Theory">
-                    Theory
-                </option>
-
-                <option value="Project">
-                    Project
-                </option>
-
-            </select>
-
-
-            <!-- SUBJECT -->
-
-            <select
-                id="subjectFilter"
-                class="select"
-            >
-
-                <option value="">
-                    All Subjects
-                </option>
-
-            </select>
-
-
-            <!-- ROLL -->
-
-            <select
-                id="rollFilter"
-                class="select"
-            >
-
-                <option value="">
-                    All Roll Numbers
-                </option>
-
-            </select>
-
-
-            <!-- CLEAR -->
-
-            <button
-                class="clear-btn"
-                id="clearBtn"
-            >
-                Clear
-            </button>
-
-        </div>
-
-    </section>
-
-
-
-    <!-- =========================
-         CONTENT
-    ========================= -->
-
-    <section class="content-card">
-
-
-        <div class="content-header">
-
-            <h2>
-                Submitted Presentations
-            </h2>
-
-            <span
-                class="result-count"
-                id="resultCount"
-            >
-                0 results
-            </span>
-
-        </div>
-
-
-        <div class="table-wrapper">
-
-            <table>
-
-                <thead>
-
-                    <tr>
-
-                        <th>
-                            Roll Number
-                        </th>
-
-                        <th>
-                            Type
-                        </th>
-
-                        <th>
-                            Subject
-                        </th>
-
-                        <th>
-                            File
-                        </th>
-
-                        <th>
-                            Date
-                        </th>
-
-                    </tr>
-
-                </thead>
-
-
-                <tbody id="tableBody">
-
-                    <tr>
-
-                        <td colspan="5">
-
-                            <div class="message loading">
-                                Loading presentations...
-                            </div>
-
-                        </td>
-
-                    </tr>
-
-                </tbody>
-
-            </table>
-
-        </div>
-
-    </section>
-
-
-</main>
+</div>
 
 
 
 <script>
 
-/* =========================================================
-   DATA
-========================================================= */
 
-let presentations = [];
-
-
-/* =========================================================
-   SUBJECT STRUCTURE
-========================================================= */
-
-const SUBJECTS = {
-
-    Lab: [
-        "Node-JS",
-        "CM",
-        "JAVA",
-        "DBMS",
-        "SE",
-        "GS"
-    ],
-
-    Theory: [
-        "MSF",
-        "JAVA",
-        "COA",
-        "DBMS",
-        "SE"
-    ],
-
-    Project: [
-        "Node-JS",
-        "CM",
-        "JAVA",
-        "DBMS",
-        "SE"
-    ]
-
-};
-
-
-/* =========================================================
-   ROLL NUMBERS
-========================================================= */
-
-const ROLLS = [
-
-    "257R1A66C9",
-
-    "257R1A66D0",
-    "257R1A66D1",
-    "257R1A66D2",
-    "257R1A66D3",
-    "257R1A66D4",
-    "257R1A66D5",
-    "257R1A66D6",
-    "257R1A66D7",
-    "257R1A66D8",
-    "257R1A66D9",
-
-    "257R1A66E0",
-    "257R1A66E1",
-    "257R1A66E2",
-    "257R1A66E3",
-    "257R1A66E4",
-    "257R1A66E5",
-    "257R1A66E6",
-    "257R1A66E7",
-    "257R1A66E8",
-    "257R1A66E9",
-
-    "257R1A66F0",
-    "257R1A66F1",
-    "257R1A66F2",
-    "257R1A66F3",
-    "257R1A66F4",
-    "257R1A66F5",
-    "257R1A66F6",
-    "257R1A66F7",
-    "257R1A66F8",
-    "257R1A66F9",
-
-    "257R1A66G0",
-    "257R1A66G1",
-    "257R1A66G2",
-    "257R1A66G3",
-    "257R1A66G4",
-    "257R1A66G5",
-    "257R1A66G6",
-    "257R1A66G7",
-    "257R1A66G8",
-    "257R1A66G9",
-
-    "257R1A66H0",
-    "257R1A66H1",
-    "257R1A66H2",
-    "257R1A66H3",
-    "257R1A66H4",
-    "257R1A66H5",
-    "257R1A66H6",
-    "257R1A66H7",
-    "257R1A66H8",
-    "257R1A66H9",
-
-    "257R1A66J0",
-    "257R1A66J1",
-    "257R1A66J3",
-    "257R1A66J4",
-    "257R1A66J6",
-    "257R1A66J7",
-    "257R1A66J8",
-    "257R1A66J9",
-
-    "257R1A66K0",
-    "257R1A66K1",
-    "257R1A66K2",
-
-    "267R5A6615",
-    "267R5A6616",
-    "267R5A6617",
-    "267R5A6618",
-    "267R5A6619",
-    "267R5A6620",
-    "267R5A6621",
-    "267R5A6622"
-
-];
-
-
-/* =========================================================
-   ELEMENTS
-========================================================= */
-
-const tableBody =
+const categorySelect =
     document.getElementById(
-        "tableBody"
-    );
-
-const searchInput =
-    document.getElementById(
-        "searchInput"
-    );
-
-const typeFilter =
-    document.getElementById(
-        "typeFilter"
-    );
-
-const subjectFilter =
-    document.getElementById(
-        "subjectFilter"
-    );
-
-const rollFilter =
-    document.getElementById(
-        "rollFilter"
-    );
-
-const clearBtn =
-    document.getElementById(
-        "clearBtn"
-    );
-
-const refreshBtn =
-    document.getElementById(
-        "refreshBtn"
+        "category"
     );
 
 
-/* =========================================================
-   LOAD FILTERS
-========================================================= */
+const subjectSelect =
+    document.getElementById(
+        "subject"
+    );
 
-function loadRollFilter() {
 
-    for (
-        let i = 0;
-        i < ROLLS.length;
-        i++
-    ) {
+const info =
+    document.getElementById(
+        "info"
+    );
 
-        const option =
-            document.createElement(
-                "option"
-            );
 
-        option.value =
-            ROLLS[i];
+const content =
+    document.getElementById(
+        "content"
+    );
 
-        option.textContent =
-            ROLLS[i];
 
-        rollFilter.appendChild(
-            option
-        );
+let structure = {};
 
-    }
-
-}
 
 
 /* =========================================================
-   LOAD SUBJECT FILTER
+   LOAD STRUCTURE
 ========================================================= */
 
-function loadAllSubjects() {
-
-    const allSubjects = [];
-
-    const categories =
-        Object.keys(SUBJECTS);
-
-    for (
-        let i = 0;
-        i < categories.length;
-        i++
-    ) {
-
-        const subjects =
-            SUBJECTS[
-                categories[i]
-            ];
-
-        for (
-            let j = 0;
-            j < subjects.length;
-            j++
-        ) {
-
-            if (
-                allSubjects.indexOf(
-                    subjects[j]
-                ) === -1
-            ) {
-
-                allSubjects.push(
-                    subjects[j]
-                );
-
-            }
-
-        }
-
-    }
-
-
-    for (
-        let i = 0;
-        i < allSubjects.length;
-        i++
-    ) {
-
-        const option =
-            document.createElement(
-                "option"
-            );
-
-        option.value =
-            allSubjects[i];
-
-        option.textContent =
-            allSubjects[i];
-
-        subjectFilter.appendChild(
-            option
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   TYPE → SUBJECT FILTER
-========================================================= */
-
-typeFilter.addEventListener(
-    "change",
-    function () {
-
-        const selectedType =
-            typeFilter.value;
-
-        subjectFilter.innerHTML =
-            '<option value="">All Subjects</option>';
-
-
-        if (
-            selectedType &&
-            SUBJECTS[selectedType]
-        ) {
-
-            const subjects =
-                SUBJECTS[selectedType];
-
-
-            for (
-                let i = 0;
-                i < subjects.length;
-                i++
-            ) {
-
-                const option =
-                    document.createElement(
-                        "option"
-                    );
-
-                option.value =
-                    subjects[i];
-
-                option.textContent =
-                    subjects[i];
-
-                subjectFilter.appendChild(
-                    option
-                );
-
-            }
-
-        } else {
-
-            loadAllSubjects();
-
-        }
-
-
-        renderTable();
-
-    }
-);
-
-
-/* =========================================================
-   LOAD DATA
-========================================================= */
-
-async function loadPresentations() {
-
-    tableBody.innerHTML = `
-
-        <tr>
-
-            <td colspan="5">
-
-                <div class="message loading">
-                    Loading presentations...
-                </div>
-
-            </td>
-
-        </tr>
-
-    `;
-
+async function loadConfig() {
 
     try {
 
         /*
-           IMPORTANT:
-
-           This expects your server to provide:
-
-           GET /api/submissions
-        */
+         * IMPORTANT:
+         * Use /api/structure instead of /api/config
+         */
 
         const response =
             await fetch(
-                "/api/submissions"
+                "/api/structure"
             );
 
 
         if (!response.ok) {
 
             throw new Error(
-                "Server returned " +
-                response.status
+                "Unable to load subjects"
             );
 
         }
@@ -1147,558 +302,360 @@ async function loadPresentations() {
 
 
         /*
-           Supports either:
+         * Your backend returns:
+         *
+         * {
+         *     ok: true,
+         *     structure: {...}
+         * }
+         */
 
-           {
-              submissions: [...]
-           }
+        structure =
+            data.structure || {};
 
-           OR
-
-           {
-              files: [...]
-           }
-
-           OR
-
-           [...]
-        */
-
-        if (
-            Array.isArray(data)
-        ) {
-
-            presentations =
-                data;
-
-        } else if (
-            Array.isArray(
-                data.submissions
-            )
-        ) {
-
-            presentations =
-                data.submissions;
-
-        } else if (
-            Array.isArray(
-                data.files
-            )
-        ) {
-
-            presentations =
-                data.files;
-
-        } else {
-
-            presentations = [];
-
-        }
-
-
-        updateStatistics();
-
-        renderTable();
 
     } catch (error) {
 
         console.error(error);
 
-        tableBody.innerHTML = `
+        content.innerHTML =
+            `
+            <div class="empty">
 
-            <tr>
+                Unable to load subjects.
 
-                <td colspan="5">
-
-                    <div class="message error">
-
-                        Unable to load presentations.
-
-                        <br><br>
-
-                        ${escapeHTML(error.message)}
-
-                    </div>
-
-                </td>
-
-            </tr>
-
-        `;
+            </div>
+            `;
 
     }
 
 }
 
 
+
 /* =========================================================
-   FILTER
+   CATEGORY CHANGE
 ========================================================= */
 
-function getFilteredData() {
-
-    const search =
-        searchInput.value
-            .trim()
-            .toLowerCase();
-
-    const type =
-        typeFilter.value;
-
-    const subject =
-        subjectFilter.value;
-
-    const roll =
-        rollFilter.value;
+categorySelect.addEventListener(
+    "change",
+    function() {
 
 
-    return presentations.filter(
-        function (item) {
+        /* Clear old subjects */
 
-            const itemRoll =
-                String(
-                    item.roll ||
-                    item.rollNumber ||
-                    ""
-                );
-
-            const itemSubject =
-                String(
-                    item.subject ||
-                    ""
-                );
-
-            const itemType =
-                String(
-                    item.category ||
-                    item.type ||
-                    ""
-                );
-
-            const itemFile =
-                String(
-                    item.name ||
-                    item.fileName ||
-                    ""
-                );
+        subjectSelect.innerHTML =
+            `
+            <option value="">
+                Select Subject
+            </option>
+            `;
 
 
-            if (
-                search &&
-                !(
-                    itemRoll
-                        .toLowerCase()
-                        .includes(search)
-                    ||
-                    itemFile
-                        .toLowerCase()
-                        .includes(search)
-                )
-            ) {
+        /* Clear previous PPTs */
 
-                return false;
+        content.innerHTML =
+            `
+            <div class="empty">
 
-            }
+                Select a subject.
+
+            </div>
+            `;
 
 
-            if (
-                type &&
-                itemType !== type
-            ) {
-
-                return false;
-
-            }
+        info.textContent =
+            "Select a subject.";
 
 
-            if (
-                subject &&
-                itemSubject !== subject
-            ) {
+        /*
+         * Disable subject dropdown
+         * if category isn't selected
+         */
 
-                return false;
-
-            }
-
-
-            if (
-                roll &&
-                itemRoll !== roll
-            ) {
-
-                return false;
-
-            }
+        subjectSelect.disabled =
+            !this.value;
 
 
-            return true;
+        if (!this.value) {
+
+            return;
 
         }
-    );
 
-}
+
+        /*
+         * Get subjects for
+         * selected category
+         */
+
+        const subjects =
+            structure[this.value] || [];
+
+
+        /*
+         * Add subjects to dropdown
+         */
+
+        for (
+            let i = 0;
+            i < subjects.length;
+            i++
+        ) {
+
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+
+            option.value =
+                subjects[i];
+
+
+            option.textContent =
+                subjects[i];
+
+
+            subjectSelect.appendChild(
+                option
+            );
+
+        }
+
+    }
+);
+
 
 
 /* =========================================================
-   RENDER TABLE
+   SUBJECT CHANGE
 ========================================================= */
 
-function renderTable() {
+subjectSelect.addEventListener(
+    "change",
+    loadPPTs
+);
 
-    const filtered =
-        getFilteredData();
 
 
-    document.getElementById(
-        "resultCount"
-    ).textContent =
-        filtered.length +
-        (
-            filtered.length === 1
-                ? " result"
-                : " results"
-        );
+/* =========================================================
+   LOAD PPTs
+========================================================= */
+
+async function loadPPTs() {
+
+    const category =
+        categorySelect.value;
+
+
+    const subject =
+        subjectSelect.value;
 
 
     if (
-        filtered.length === 0
+        !category ||
+        !subject
     ) {
-
-        tableBody.innerHTML = `
-
-            <tr>
-
-                <td colspan="5">
-
-                    <div class="message">
-
-                        No presentations found.
-
-                    </div>
-
-                </td>
-
-            </tr>
-
-        `;
 
         return;
 
     }
 
 
-    let html = "";
+    content.innerHTML =
+        `
+        <div class="loading">
 
+            Loading presentations...
 
-    for (
-        let i = 0;
-        i < filtered.length;
-        i++
-    ) {
-
-        const item =
-            filtered[i];
-
-
-        const roll =
-            item.roll ||
-            item.rollNumber ||
-            "-";
-
-
-        const type =
-            item.category ||
-            item.type ||
-            "-";
-
-
-        const subject =
-            item.subject ||
-            "-";
-
-
-        const fileName =
-            item.name ||
-            item.fileName ||
-            "Open file";
-
-
-        const fileUrl =
-            item.webViewLink ||
-            item.url ||
-            item.link ||
-            "#";
-
-
-        const date =
-            item.createdTime ||
-            item.date ||
-            "";
-
-
-        let formattedDate =
-            "-";
-
-
-        if (date) {
-
-            const d =
-                new Date(date);
-
-            if (
-                !isNaN(
-                    d.getTime()
-                )
-            ) {
-
-                formattedDate =
-                    d.toLocaleString();
-
-            }
-
-        }
-
-
-        let badgeClass =
-            "badge-lab";
-
-
-        if (
-            type === "Theory"
-        ) {
-
-            badgeClass =
-                "badge-theory";
-
-        }
-
-
-        if (
-            type === "Project"
-        ) {
-
-            badgeClass =
-                "badge-project";
-
-        }
-
-
-        html += `
-
-            <tr>
-
-                <td>
-                    <strong>
-                        ${escapeHTML(roll)}
-                    </strong>
-                </td>
-
-                <td>
-
-                    <span
-                        class="badge ${badgeClass}"
-                    >
-                        ${escapeHTML(type)}
-                    </span>
-
-                </td>
-
-                <td>
-                    ${escapeHTML(subject)}
-                </td>
-
-                <td>
-
-                    ${
-                        fileUrl !== "#"
-
-                        ?
-
-                        `
-                        <a
-                            class="file-link"
-                            href="${escapeAttribute(fileUrl)}"
-                            target="_blank"
-                            rel="noopener"
-                        >
-                            ${escapeHTML(fileName)}
-                        </a>
-                        `
-
-                        :
-
-                        escapeHTML(fileName)
-                    }
-
-                </td>
-
-                <td>
-                    ${escapeHTML(formattedDate)}
-                </td>
-
-            </tr>
-
+        </div>
         `;
 
-    }
+
+    try {
 
 
-    tableBody.innerHTML =
-        html;
+        const response =
+            await fetch(
 
-}
+                `/api/ppts?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`
 
-
-/* =========================================================
-   STATISTICS
-========================================================= */
-
-function updateStatistics() {
-
-    let lab = 0;
-    let theory = 0;
-    let project = 0;
-
-
-    for (
-        let i = 0;
-        i < presentations.length;
-        i++
-    ) {
-
-        const type =
-            String(
-                presentations[i].category ||
-                presentations[i].type ||
-                ""
             );
 
 
-        if (
-            type === "Lab"
-        ) {
+        const data =
+            await response.json();
 
-            lab++;
 
-        } else if (
-            type === "Theory"
-        ) {
+        if (!data.ok) {
 
-            theory++;
-
-        } else if (
-            type === "Project"
-        ) {
-
-            project++;
+            throw new Error(
+                data.error
+            );
 
         }
 
+
+        info.textContent =
+            `${subject} • ${category} • ${data.count}/${data.totalStudents} submitted`;
+
+
+        if (
+            !data.submissions ||
+            !data.submissions.length
+        ) {
+
+            content.innerHTML =
+                `
+                <div class="empty">
+
+                    No PPTs submitted yet.
+
+                </div>
+                `;
+
+            return;
+
+        }
+
+
+        const grid =
+            document.createElement(
+                "div"
+            );
+
+
+        grid.className =
+            "grid";
+
+
+        for (
+            let i = 0;
+            i < data.submissions.length;
+            i++
+        ) {
+
+            const item =
+                data.submissions[i];
+
+
+            const card =
+                document.createElement(
+                    "div"
+                );
+
+
+            card.className =
+                "card";
+
+
+            card.innerHTML =
+                `
+
+                <div class="roll">
+
+                    ${escapeHTML(
+                        item.roll
+                    )}
+
+                </div>
+
+
+                <div class="filename">
+
+                    ${escapeHTML(
+                        item.fileName
+                    )}
+
+                </div>
+
+
+                <a
+                    class="open"
+                    href="${escapeAttribute(
+                        item.url
+                    )}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+
+                    Open Presentation
+
+                </a>
+
+                `;
+
+
+            grid.appendChild(
+                card
+            );
+
+        }
+
+
+        content.innerHTML = "";
+
+
+        content.appendChild(
+            grid
+        );
+
+
+    } catch (error) {
+
+        console.error(error);
+
+
+        content.innerHTML =
+            `
+            <div class="empty">
+
+                ${escapeHTML(
+                    error.message
+                )}
+
+            </div>
+            `;
+
     }
-
-
-    document.getElementById(
-        "totalCount"
-    ).textContent =
-        presentations.length;
-
-
-    document.getElementById(
-        "labCount"
-    ).textContent =
-        lab;
-
-
-    document.getElementById(
-        "theoryCount"
-    ).textContent =
-        theory;
-
-
-    document.getElementById(
-        "projectCount"
-    ).textContent =
-        project;
 
 }
 
 
-/* =========================================================
-   CLEAR FILTERS
-========================================================= */
-
-clearBtn.addEventListener(
-    "click",
-    function () {
-
-        searchInput.value =
-            "";
-
-        typeFilter.value =
-            "";
-
-        rollFilter.value =
-            "";
-
-        subjectFilter.innerHTML =
-            '<option value="">All Subjects</option>';
-
-        loadAllSubjects();
-
-        renderTable();
-
-    }
-);
-
 
 /* =========================================================
-   LIVE FILTERING
-========================================================= */
-
-searchInput.addEventListener(
-    "input",
-    renderTable
-);
-
-
-rollFilter.addEventListener(
-    "change",
-    renderTable
-);
-
-
-subjectFilter.addEventListener(
-    "change",
-    renderTable
-);
-
-
-/* =========================================================
-   REFRESH
-========================================================= */
-
-refreshBtn.addEventListener(
-    "click",
-    function () {
-
-        loadPresentations();
-
-    }
-);
-
-
-/* =========================================================
-   SECURITY HELPERS
+   SECURITY
 ========================================================= */
 
 function escapeHTML(value) {
 
     return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /'/g,
+            "&#039;"
+        );
 
 }
 
@@ -1706,25 +663,39 @@ function escapeHTML(value) {
 function escapeAttribute(value) {
 
     return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        );
 
 }
 
 
+
 /* =========================================================
-   INITIALIZATION
+   START
 ========================================================= */
 
-loadRollFilter();
-
-loadAllSubjects();
-
-loadPresentations();
+loadConfig();
 
 </script>
 
 </body>
+
 </html>
