@@ -4,7 +4,7 @@
 <head>
 
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>CSM PPT Dashboard</title>
 
@@ -37,9 +37,7 @@ body {
     padding: 0 20px;
 
     display: grid;
-
     grid-template-columns: 1fr 1fr;
-
     gap: 15px;
 }
 
@@ -47,7 +45,6 @@ select {
     padding: 13px;
 
     border: 1px solid #d1d5db;
-
     border-radius: 9px;
 
     background: white;
@@ -55,9 +52,13 @@ select {
     font-size: 15px;
 }
 
+select:disabled {
+    background: #f3f4f6;
+    cursor: not-allowed;
+}
+
 .container {
     max-width: 1200px;
-
     margin: auto;
 
     padding: 0 20px 40px;
@@ -65,7 +66,6 @@ select {
 
 .info {
     margin-bottom: 20px;
-
     color: #6b7280;
 }
 
@@ -91,7 +91,6 @@ select {
 
 .roll {
     font-size: 18px;
-
     font-weight: bold;
 
     margin-bottom: 10px;
@@ -123,6 +122,12 @@ select {
     text-decoration: none;
 
     border-radius: 8px;
+
+    transition: 0.2s;
+}
+
+.open:hover {
+    background: #1d4ed8;
 }
 
 .empty {
@@ -143,6 +148,18 @@ select {
     padding: 40px;
 }
 
+.error {
+    background: #fee2e2;
+
+    color: #991b1b;
+
+    padding: 20px;
+
+    border-radius: 10px;
+
+    text-align: center;
+}
+
 @media(max-width:650px) {
 
     .controls {
@@ -155,24 +172,21 @@ select {
 
 </head>
 
-
 <body>
 
 
+<!-- HEADER -->
+
 <div class="header">
 
-    <h1>
-        CSM PPT Dashboard
-    </h1>
+    <h1>CSM PPT Dashboard</h1>
 
 </div>
 
 
+<!-- CONTROLS -->
 
 <div class="controls">
-
-
-    <!-- CATEGORY -->
 
     <select id="category">
 
@@ -195,12 +209,7 @@ select {
     </select>
 
 
-    <!-- SUBJECT -->
-
-    <select
-        id="subject"
-        disabled
-    >
+    <select id="subject" disabled>
 
         <option value="">
             Select Subject
@@ -208,129 +217,109 @@ select {
 
     </select>
 
-
 </div>
 
 
+<!-- CONTENT -->
 
 <div class="container">
 
-
     <div id="info" class="info">
-
         Select type and subject.
-
     </div>
 
 
     <div id="content">
 
         <div class="empty">
-
             No presentation selected.
-
         </div>
 
     </div>
 
-
 </div>
-
 
 
 <script>
 
+/* =========================================================
+   ELEMENTS
+========================================================= */
 
 const categorySelect =
-    document.getElementById(
-        "category"
-    );
-
+    document.getElementById("category");
 
 const subjectSelect =
-    document.getElementById(
-        "subject"
-    );
-
+    document.getElementById("subject");
 
 const info =
-    document.getElementById(
-        "info"
-    );
-
+    document.getElementById("info");
 
 const content =
-    document.getElementById(
-        "content"
-    );
+    document.getElementById("content");
 
+
+/* =========================================================
+   DATA
+========================================================= */
 
 let structure = {};
 
 
-
 /* =========================================================
-   LOAD STRUCTURE
+   LOAD CONFIGURATION
 ========================================================= */
 
 async function loadConfig() {
 
     try {
 
-        /*
-         * IMPORTANT:
-         * Use /api/structure instead of /api/config
-         */
-
         const response =
-            await fetch(
-                "/api/structure"
-            );
-
+            await fetch("/api/config");
 
         if (!response.ok) {
 
             throw new Error(
-                "Unable to load subjects"
+                `Server returned ${response.status}`
             );
 
         }
 
-
         const data =
             await response.json();
 
+        if (!data.ok) {
 
-        /*
-         * Your backend returns:
-         *
-         * {
-         *     ok: true,
-         *     structure: {...}
-         * }
-         */
+            throw new Error(
+                data.error ||
+                "Unable to load configuration."
+            );
+
+        }
 
         structure =
             data.structure || {};
 
+    }
 
-    } catch (error) {
+    catch (error) {
 
-        console.error(error);
+        console.error(
+            "CONFIG ERROR:",
+            error
+        );
 
-        content.innerHTML =
-            `
-            <div class="empty">
-
-                Unable to load subjects.
-
+        content.innerHTML = `
+            <div class="error">
+                Unable to load configuration.
+                <br>
+                ${escapeHTML(error.message)}
             </div>
-            `;
+        `;
 
     }
 
 }
-
 
 
 /* =========================================================
@@ -339,10 +328,7 @@ async function loadConfig() {
 
 categorySelect.addEventListener(
     "change",
-    function() {
-
-
-        /* Clear old subjects */
+    function () {
 
         subjectSelect.innerHTML =
             `
@@ -351,27 +337,15 @@ categorySelect.addEventListener(
             </option>
             `;
 
-
-        /* Clear previous PPTs */
-
         content.innerHTML =
             `
             <div class="empty">
-
                 Select a subject.
-
             </div>
             `;
 
-
         info.textContent =
             "Select a subject.";
-
-
-        /*
-         * Disable subject dropdown
-         * if category isn't selected
-         */
 
         subjectSelect.disabled =
             !this.value;
@@ -384,48 +358,50 @@ categorySelect.addEventListener(
         }
 
 
-        /*
-         * Get subjects for
-         * selected category
-         */
-
         const subjects =
-            structure[this.value] || [];
+            structure[this.value];
 
 
-        /*
-         * Add subjects to dropdown
-         */
-
-        for (
-            let i = 0;
-            i < subjects.length;
-            i++
+        if (
+            !subjects ||
+            !Array.isArray(subjects)
         ) {
 
-            const option =
-                document.createElement(
-                    "option"
-                );
+            content.innerHTML =
+                `
+                <div class="error">
+                    No subjects found.
+                </div>
+                `;
 
-
-            option.value =
-                subjects[i];
-
-
-            option.textContent =
-                subjects[i];
-
-
-            subjectSelect.appendChild(
-                option
-            );
+            return;
 
         }
 
+
+        subjects.forEach(
+            function (subject) {
+
+                const option =
+                    document.createElement(
+                        "option"
+                    );
+
+                option.value =
+                    subject;
+
+                option.textContent =
+                    subject;
+
+                subjectSelect.appendChild(
+                    option
+                );
+
+            }
+        );
+
     }
 );
-
 
 
 /* =========================================================
@@ -438,16 +414,14 @@ subjectSelect.addEventListener(
 );
 
 
-
 /* =========================================================
-   LOAD PPTs
+   LOAD PRESENTATIONS
 ========================================================= */
 
 async function loadPPTs() {
 
     const category =
         categorySelect.value;
-
 
     const subject =
         subjectSelect.value;
@@ -466,22 +440,28 @@ async function loadPPTs() {
     content.innerHTML =
         `
         <div class="loading">
-
             Loading presentations...
-
         </div>
         `;
 
 
     try {
 
+        const url =
+            `/api/ppts?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
+
 
         const response =
-            await fetch(
+            await fetch(url);
 
-                `/api/ppts?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`
 
+        if (!response.ok) {
+
+            throw new Error(
+                `Server returned ${response.status}`
             );
+
+        }
 
 
         const data =
@@ -491,7 +471,8 @@ async function loadPPTs() {
         if (!data.ok) {
 
             throw new Error(
-                data.error
+                data.error ||
+                "Unable to load presentations."
             );
 
         }
@@ -503,15 +484,13 @@ async function loadPPTs() {
 
         if (
             !data.submissions ||
-            !data.submissions.length
+            data.submissions.length === 0
         ) {
 
             content.innerHTML =
                 `
                 <div class="empty">
-
                     No PPTs submitted yet.
-
                 </div>
                 `;
 
@@ -525,96 +504,106 @@ async function loadPPTs() {
                 "div"
             );
 
-
         grid.className =
             "grid";
 
 
-        for (
-            let i = 0;
-            i < data.submissions.length;
-            i++
-        ) {
+        data.submissions.forEach(
+            function (item) {
 
-            const item =
-                data.submissions[i];
+                const card =
+                    document.createElement(
+                        "div"
+                    );
 
-
-            const card =
-                document.createElement(
-                    "div"
-                );
+                card.className =
+                    "card";
 
 
-            card.className =
-                "card";
+                /*
+                   IMPORTANT FIX:
+
+                   Server returns:
+                   item.presentationUrl
+
+                   NOT:
+                   item.url
+                */
+
+                const presentationUrl =
+                    item.presentationUrl ||
+                    item.driveUrl ||
+                    "#";
 
 
-            card.innerHTML =
-                `
+                card.innerHTML = `
 
-                <div class="roll">
+                    <div class="roll">
+                        ${escapeHTML(item.roll)}
+                    </div>
 
-                    ${escapeHTML(
-                        item.roll
-                    )}
+                    <div class="filename">
+                        ${escapeHTML(item.fileName)}
+                    </div>
 
-                </div>
+                    ${
+                        presentationUrl !== "#"
+                        ?
 
+                        `
+                        <a
+                            class="open"
+                            href="${escapeAttribute(presentationUrl)}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            Open Presentation
+                        </a>
+                        `
 
-                <div class="filename">
+                        :
 
-                    ${escapeHTML(
-                        item.fileName
-                    )}
-
-                </div>
-
-
-                <a
-                    class="open"
-                    href="${escapeAttribute(
-                        item.url
-                    )}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-
-                    Open Presentation
-
-                </a>
+                        `
+                        <div class="error">
+                            Presentation link unavailable.
+                        </div>
+                        `
+                    }
 
                 `;
 
 
-            grid.appendChild(
-                card
-            );
+                grid.appendChild(
+                    card
+                );
 
-        }
+            }
+        );
 
 
-        content.innerHTML = "";
-
+        content.innerHTML =
+            "";
 
         content.appendChild(
             grid
         );
 
+    }
 
-    } catch (error) {
+    catch (error) {
 
-        console.error(error);
+        console.error(
+            "PPT LOAD ERROR:",
+            error
+        );
 
 
         content.innerHTML =
             `
-            <div class="empty">
-
-                ${escapeHTML(
-                    error.message
-                )}
-
+            <div class="error">
+                Unable to load presentations.
+                <br><br>
+                ${escapeHTML(error.message)}
             </div>
             `;
 
@@ -623,9 +612,8 @@ async function loadPPTs() {
 }
 
 
-
 /* =========================================================
-   SECURITY
+   HTML ESCAPE
 ========================================================= */
 
 function escapeHTML(value) {
@@ -660,6 +648,10 @@ function escapeHTML(value) {
 }
 
 
+/* =========================================================
+   ATTRIBUTE ESCAPE
+========================================================= */
+
 function escapeAttribute(value) {
 
     return String(value)
@@ -687,9 +679,8 @@ function escapeAttribute(value) {
 }
 
 
-
 /* =========================================================
-   START
+   INITIALIZE
 ========================================================= */
 
 loadConfig();
