@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>CSM PPT Submission</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f4f7fb;
+    color: #1f2937;
+}
+
+.container {
+    max-width: 650px;
+    margin: 50px auto;
+    padding: 20px;
+}
+
+.card {
+    background: white;
+    padding: 30px;
+    border-radius: 16px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+
+h1 {
+    text-align: center;
+    margin-top: 0;
+}
+
+.subtitle {
+    text-align: center;
+    color: #6b7280;
+    margin-bottom: 30px;
+}
+
+label {
+    display: block;
+    margin-top: 18px;
+    margin-bottom: 7px;
+    font-weight: bold;
+}
+
+select,
+input {
+    width: 100%;
+    padding: 13px;
+    border: 1px solid #d1d5db;
+    border-radius: 9px;
+    font-size: 15px;
+}
+
+button {
+    width: 100%;
+    margin-top: 25px;
+    padding: 14px;
+    border: none;
+    border-radius: 9px;
+    background: #2563eb;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:disabled {
+    background: #9ca3af;
+}
+
+.status {
+    margin-top: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    display: none;
+}
+
+.success {
+    display: block;
+    background: #dcfce7;
+    color: #166534;
+}
+
+.error {
+    display: block;
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.progress {
+    display: none;
+    margin-top: 18px;
+}
+
+.progress-text {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.progress-track {
+    width: 100%;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background: #2563eb;
+    transition: width .15s;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="card">
+
+<h1>CSM PPT Submission</h1>
+
+<div class="subtitle">
+Submit your presentation
+</div>
+
+
+<label>Roll Number</label>
+
+<select id="roll">
+<option value="">Select Roll Number</option>
+</select>
+
+
+<label>Presentation Type</label>
+
+<select id="category">
+<option value="">Select Type</option>
+<option value="Lab">Lab</option>
+<option value="Theory">Theory</option>
+<option value="Project">Project</option>
+</select>
+
+
+<label>Subject</label>
+
+<select id="subject" disabled>
+<option value="">Select Subject</option>
+</select>
+
+
+<label>Select PPT</label>
+
+<input
+    id="ppt"
+    type="file"
+    accept=".ppt,.pptx"
+>
+
+
+<div class="progress" id="progress">
+
+<div class="progress-text" id="progressText">
+Uploading...
+</div>
+
+<div class="progress-track">
+
+<div
+    class="progress-bar"
+    id="progressBar">
+</div>
+
+</div>
+
+</div>
+
+
+<button id="uploadBtn">
+Upload PPT
+</button>
+
+
+<div id="status" class="status"></div>
+
+</div>
+
+</div>
+
+
+<script>
+
+const roll =
+    document.getElementById("roll");
+
+const category =
+    document.getElementById("category");
+
+const subject =
+    document.getElementById("subject");
+
+const ppt =
+    document.getElementById("ppt");
+
+const uploadBtn =
+    document.getElementById("uploadBtn");
+
+const statusBox =
+    document.getElementById("status");
+
+const progress =
+    document.getElementById("progress");
+
+const progressBar =
+    document.getElementById("progressBar");
+
+const progressText =
+    document.getElementById("progressText");
+
+
+let structure = {};
+
+
+/* CONFIG */
+
+async function loadConfig() {
+
+    try {
+
+        const response =
+            await fetch("/api/config");
+
+        const data =
+            await response.json();
+
+        structure =
+            data.structure;
+
+
+        data.rolls.forEach(
+            function(item) {
+
+                const option =
+                    document.createElement("option");
+
+                option.value = item;
+                option.textContent = item;
+
+                roll.appendChild(option);
+            }
+        );
+
+    } catch (error) {
+
+        showStatus(
+            "Unable to connect to server.",
+            "error"
+        );
+    }
+}
+
+
+/* CATEGORY */
+
+category.addEventListener(
+    "change",
+    function() {
+
+        subject.innerHTML =
+            '<option value="">Select Subject</option>';
+
+        subject.disabled =
+            !this.value;
+
+
+        if (!this.value) {
+            return;
+        }
+
+
+        structure[this.value].forEach(
+            function(item) {
+
+                const option =
+                    document.createElement("option");
+
+                option.value = item;
+                option.textContent = item;
+
+                subject.appendChild(option);
+            }
+        );
+    }
+);
+
+
+/* STATUS */
+
+function showStatus(
+    message,
+    type
+) {
+
+    statusBox.textContent =
+        message;
+
+    statusBox.className =
+        "status " + type;
+}
+
+
+/* UPLOAD */
+
+uploadBtn.addEventListener(
+    "click",
+    function() {
+
+        const selectedFile =
+            ppt.files[0];
+
+
+        if (!roll.value) {
+
+            showStatus(
+                "Please select your roll number.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        if (!category.value) {
+
+            showStatus(
+                "Please select presentation type.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        if (!subject.value) {
+
+            showStatus(
+                "Please select subject.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        if (!selectedFile) {
+
+            showStatus(
+                "Please select a PPT file.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        if (
+            !/\.(ppt|pptx)$/i
+                .test(selectedFile.name)
+        ) {
+
+            showStatus(
+                "Only PPT/PPTX files are allowed.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        uploadBtn.disabled = true;
+
+        progress.style.display =
+            "block";
+
+        progressBar.style.width =
+            "0%";
+
+        progressText.textContent =
+            "Uploading PPT...";
+
+
+        const formData =
+            new FormData();
+
+
+        formData.append(
+            "roll",
+            roll.value
+        );
+
+        formData.append(
+            "category",
+            category.value
+        );
+
+        formData.append(
+            "subject",
+            subject.value
+        );
+
+        formData.append(
+            "ppt",
+            selectedFile
+        );
+
+
+        /*
+          XMLHttpRequest is used here
+          so we can display real upload progress.
+        */
+
+        const xhr =
+            new XMLHttpRequest();
+
+
+        xhr.open(
+            "POST",
+            "/api/upload"
+        );
+
+
+        xhr.upload.onprogress =
+            function(event) {
+
+                if (!event.lengthComputable) {
+                    return;
+                }
+
+
+                const percent =
+                    Math.round(
+                        event.loaded /
+                        event.total *
+                        100
+                    );
+
+
+                progressBar.style.width =
+                    percent + "%";
+
+                progressText.textContent =
+                    `Uploading... ${percent}%`;
+            };
+
+
+        xhr.onload =
+            function() {
+
+                uploadBtn.disabled =
+                    false;
+
+
+                let data;
+
+
+                try {
+
+                    data =
+                        JSON.parse(
+                            xhr.responseText
+                        );
+
+                } catch {
+
+                    showStatus(
+                        "Server returned an invalid response.",
+                        "error"
+                    );
+
+                    progress.style.display =
+                        "none";
+
+                    return;
+                }
+
+
+                if (
+                    xhr.status >= 200 &&
+                    xhr.status < 300 &&
+                    data.ok
+                ) {
+
+                    progressBar.style.width =
+                        "100%";
+
+                    progressText.textContent =
+                        "Upload complete";
+
+
+                    showStatus(
+                        "PPT uploaded successfully.",
+                        "success"
+                    );
+
+
+                    ppt.value = "";
+
+                } else {
+
+                    showStatus(
+                        data.error ||
+                        "Upload failed.",
+                        "error"
+                    );
+                }
+
+
+                setTimeout(
+                    function() {
+
+                        progress.style.display =
+                            "none";
+
+                    },
+                    1200
+                );
+            };
+
+
+        xhr.onerror =
+            function() {
+
+                uploadBtn.disabled =
+                    false;
+
+
+                progress.style.display =
+                    "none";
+
+
+                showStatus(
+                    "Could not connect to the server.",
+                    "error"
+                );
+            };
+
+
+        xhr.send(formData);
+    }
+);
+
+
+loadConfig();
+
+</script>
+
+</body>
+</html>

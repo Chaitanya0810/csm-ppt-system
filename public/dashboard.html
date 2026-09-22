@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>CSM PPT Dashboard</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f4f7fb;
+    color: #1f2937;
+}
+
+.header {
+    background: white;
+    padding: 20px 30px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+
+.header h1 {
+    margin: 0;
+}
+
+.controls {
+    max-width: 1200px;
+    margin: 25px auto;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+select {
+    padding: 13px;
+    border: 1px solid #d1d5db;
+    border-radius: 9px;
+    background: white;
+    font-size: 15px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+    padding: 0 20px 40px;
+}
+
+.info {
+    margin-bottom: 20px;
+    color: #6b7280;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fill, minmax(280px, 1fr));
+    gap: 18px;
+}
+
+.card {
+    background: white;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 5px 20px rgba(0,0,0,.07);
+}
+
+.roll {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.filename {
+    font-size: 13px;
+    color: #6b7280;
+    word-break: break-word;
+    min-height: 40px;
+}
+
+.open {
+    display: block;
+    margin-top: 15px;
+    padding: 11px;
+    text-align: center;
+    background: #2563eb;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+}
+
+.empty {
+    background: white;
+    padding: 40px;
+    text-align: center;
+    border-radius: 14px;
+    color: #6b7280;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+}
+
+@media(max-width:650px) {
+
+    .controls {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="header">
+
+<h1>CSM PPT Dashboard</h1>
+
+</div>
+
+
+<div class="controls">
+
+<select id="category">
+
+<option value="">Select Type</option>
+
+<option value="Lab">Lab</option>
+
+<option value="Theory">Theory</option>
+
+<option value="Project">Project</option>
+
+</select>
+
+
+<select id="subject" disabled>
+
+<option value="">Select Subject</option>
+
+</select>
+
+</div>
+
+
+<div class="container">
+
+<div id="info" class="info">
+Select type and subject.
+</div>
+
+<div id="content">
+
+<div class="empty">
+No presentation selected.
+</div>
+
+</div>
+
+</div>
+
+
+<script>
+
+const categorySelect =
+    document.getElementById("category");
+
+const subjectSelect =
+    document.getElementById("subject");
+
+const info =
+    document.getElementById("info");
+
+const content =
+    document.getElementById("content");
+
+
+let structure = {};
+
+
+/* CONFIG */
+
+async function loadConfig() {
+
+    try {
+
+        const response =
+            await fetch("/api/config");
+
+        const data =
+            await response.json();
+
+        structure =
+            data.structure;
+
+    } catch (error) {
+
+        content.innerHTML =
+            `<div class="empty">
+                Unable to load configuration.
+             </div>`;
+    }
+}
+
+
+/* TYPE */
+
+categorySelect.addEventListener(
+    "change",
+    function() {
+
+        subjectSelect.innerHTML =
+            '<option value="">Select Subject</option>';
+
+        content.innerHTML =
+            `<div class="empty">
+                Select a subject.
+             </div>`;
+
+        info.textContent =
+            "Select a subject.";
+
+        subjectSelect.disabled =
+            !this.value;
+
+
+        if (!this.value) return;
+
+
+        structure[this.value].forEach(subject => {
+
+            const option =
+                document.createElement("option");
+
+            option.value = subject;
+
+            option.textContent = subject;
+
+            subjectSelect.appendChild(option);
+        });
+
+    }
+);
+
+
+/* SUBJECT */
+
+subjectSelect.addEventListener(
+    "change",
+    loadPPTs
+);
+
+
+/* LOAD PPTs */
+
+async function loadPPTs() {
+
+    const category =
+        categorySelect.value;
+
+    const subject =
+        subjectSelect.value;
+
+
+    if (!category || !subject) {
+        return;
+    }
+
+
+    content.innerHTML =
+        `<div class="loading">
+            Loading presentations...
+         </div>`;
+
+
+    try {
+
+        const response =
+            await fetch(
+                `/api/ppts?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if (!data.ok) {
+            throw new Error(data.error);
+        }
+
+
+        info.textContent =
+            `${subject} • ${category} • ${data.count}/${data.totalStudents} submitted`;
+
+
+        if (!data.submissions.length) {
+
+            content.innerHTML =
+                `<div class="empty">
+                    No PPTs submitted yet.
+                 </div>`;
+
+            return;
+        }
+
+
+        const grid =
+            document.createElement("div");
+
+        grid.className =
+            "grid";
+
+
+        data.submissions.forEach(item => {
+
+            const card =
+                document.createElement("div");
+
+            card.className =
+                "card";
+
+
+            card.innerHTML = `
+
+                <div class="roll">
+                    ${escapeHTML(item.roll)}
+                </div>
+
+                <div class="filename">
+                    ${escapeHTML(item.fileName)}
+                </div>
+
+                <a
+                    class="open"
+                    href="${item.url}"
+                    target="_blank"
+                >
+                    Open Presentation
+                </a>
+            `;
+
+
+            grid.appendChild(card);
+
+        });
+
+
+        content.innerHTML = "";
+
+        content.appendChild(grid);
+
+
+    } catch (error) {
+
+        content.innerHTML =
+            `<div class="empty">
+                ${escapeHTML(error.message)}
+             </div>`;
+    }
+}
+
+
+/* SECURITY */
+
+function escapeHTML(value) {
+
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+loadConfig();
+
+</script>
+
+</body>
+</html>
