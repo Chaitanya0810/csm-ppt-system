@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
+const { authenticate } = require("@google-cloud/local-auth");
 const path = require("path");
 const fs = require("fs");
 
@@ -15,6 +16,16 @@ const PORT = process.env.PORT || 3000;
 
 const ROOT_FOLDER_ID =
     "1JU3lJfEDZtn0Y5N-ZTP134wTq0X5FKLy";
+
+const SCOPES = [
+    "https://www.googleapis.com/auth/drive"
+];
+
+const CREDENTIALS_PATH =
+    path.join(__dirname, "credentials.json");
+
+const TOKEN_PATH =
+    path.join(__dirname, "token.json");
 
 /* =========================================================
    FOLDER STRUCTURE
@@ -56,7 +67,6 @@ const STRUCTURE = {
 const ROLLS = [
 
     "257R1A66C9",
-
     "257R1A66D0",
     "257R1A66D1",
     "257R1A66D2",
@@ -133,6 +143,7 @@ const ROLLS = [
     "267R5A6620",
     "267R5A6621",
     "267R5A6622"
+
 ];
 
 /* =========================================================
@@ -141,11 +152,17 @@ const ROLLS = [
 
 app.use(cors());
 
-app.use(express.json());
+app.use(
+    express.json({
+        limit: "10mb"
+    })
+);
 
-app.use(express.urlencoded({
-    extended: true
-}));
+app.use(
+    express.urlencoded({
+        extended: true
+    })
+);
 
 app.use(
     express.static(
@@ -153,22 +170,9 @@ app.use(
     )
 );
 
-/*
-   Store uploaded PPT temporarily.
-
-   IMPORTANT:
-   The file is NOT converted to Base64.
-
-   Browser
-       ↓
-   multipart/form-data
-       ↓
-   Multer
-       ↓
-   Temporary file
-       ↓
-   Google Drive
-*/
+/* =========================================================
+   MULTER
+========================================================= */
 
 const upload = multer({
 
@@ -209,118 +213,221 @@ const upload = multer({
 });
 
 /* =========================================================
-   GOOGLE AUTHENTICATION
+   GOOGLE OAUTH
 ========================================================= */
+
+let drive;
 
 /*
-   LOCAL:
-       service-account.json
+    LOCAL:
 
-   RENDER:
-       secret file can be mounted at
-       /etc/secrets/service-account.json
+    credentials.json
+    token.json
 
-   The code checks Render's secret location first.
+    RENDER:
+
+    GOOGLE_OAUTH_CREDENTIALS_JSON
+    GOOGLE_OAUTH_TOKEN_JSON
 */
 
-let credentialsPath;
+async function initializeGoogleDrive() {
 
-if (
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-) {
+    let auth;
 
-    /*
-       Optional:
-       credentials supplied as an environment variable.
-    */
+    /* -----------------------------------------------------
+       RENDER / ENVIRONMENT
+    ----------------------------------------------------- */
 
-    credentialsPath = null;
+    if (
+        process.env.GOOGLE_OAUTH_CREDENTIALS_JSON &&
+        process.env.GOOGLE_OAUTH_TOKEN_JSON
+    ) {
 
-} else if (
-    fs.existsSync(
-        "/etc/secrets/service-account.json"
-    )
-) {
-
-    credentialsPath =
-        "/etc/secrets/service-account.json";
-
-} else {
-
-    credentialsPath =
-        path.join(
-            __dirname,
-            "service-account.json"
+        console.log(
+            "Using Google OAuth credentials from environment."
         );
 
-}
+        let credentials;
+        let token;
 
-/* =========================================================
-   GOOGLE DRIVE AUTH
-========================================================= */
+        try {
 
-let auth;
+            credentials =
+                JSON.parse(
+                    process.env.GOOGLE_OAUTH_CREDENTIALS_JSON
+                );
 
-if (
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-) {
+            token =
+                JSON.parse(
+                    process.env.GOOGLE_OAUTH_TOKEN_JSON
+                );
 
-    let credentials;
+        } catch (error) {
 
-    try {
-
-        credentials =
-            JSON.parse(
-                process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+            console.error(
+                "Invalid OAuth environment variables."
             );
 
-    } catch (error) {
+            throw error;
 
-        console.error(
-            "Invalid GOOGLE_SERVICE_ACCOUNT_JSON"
+        }
+
+        const installed =
+            credentials.installed ||
+            credentials.web;
+
+        if (!installed) {
+
+            throw new Error(
+                "Invalid OAuth credentials format."
+            );
+
+        }
+
+        const clientId =
+            installed.client_id;
+
+        const clientSecret =
+            installed.client_secret;
+
+        const redirectUris =
+            installed.redirect_uris || [];
+
+        const redirectUri =
+            redirectUris[0];
+
+        auth =
+            new google.auth.OAuth2(
+                clientId,
+                clientSecret,
+                redirectUri
+            );
+
+        auth.setCredentials(
+            token
         );
-
-        process.exit(1);
 
     }
 
-    auth =
-        new google.auth.GoogleAuth({
+    /* -----------------------------------------------------
+       LOCAL DEVELOPMENT
+    ----------------------------------------------------- */
 
-            credentials: credentials,
+    else {
 
-            scopes: [
-                "https://www.googleapis.com/auth/drive"
-            ]
+        if (
+            !fs.existsSync(
+                CREDENTIALS_PATH
+            )
+        ) {
 
+            throw new Error(
+                "credentials.json not found."
+            );
+
+        }
+
+        if (
+            fs.existsSync(
+                TOKEN_PATH
+            )
+        ) {
+
+            console.log(
+                "Using saved Google OAuth token."
+            );
+
+            const credentials =
+                JSON.parse(
+                    fs.readFileSync(
+                        CREDENTIALS_PATH,
+                        "utf8"
+                    )
+                );
+
+            const token =
+                JSON.parse(
+                    fs.readFileSync(
+                        TOKEN_PATH,
+                        "utf8"
+                    )
+                );
+
+            const installed =
+                credentials.installed ||
+                credentials.web;
+
+            auth =
+                new google.auth.OAuth2(
+                    installed.client_id,
+                    installed.client_secret,
+                    installed.redirect_uris[0]
+                );
+
+            auth.setCredentials(
+                token
+            );
+
+        }
+
+        else {
+
+            console.log("");
+            console.log(
+                "===================================="
+            );
+            console.log(
+                " GOOGLE ACCOUNT AUTHORIZATION"
+            );
+            console.log(
+                "===================================="
+            );
+            console.log(
+                "A Google authorization window will open."
+            );
+            console.log("");
+
+            auth =
+                await authenticate({
+
+                    scopes: SCOPES,
+
+                    keyfilePath:
+                        CREDENTIALS_PATH
+
+                });
+
+            fs.writeFileSync(
+                TOKEN_PATH,
+                JSON.stringify(
+                    auth.credentials,
+                    null,
+                    2
+                )
+            );
+
+            console.log(
+                "Google OAuth token saved."
+            );
+
+        }
+
+    }
+
+    drive =
+        google.drive({
+            version: "v3",
+            auth: auth
         });
 
-} else {
-
-    auth =
-        new google.auth.GoogleAuth({
-
-            keyFile: credentialsPath,
-
-            scopes: [
-                "https://www.googleapis.com/auth/drive"
-            ]
-
-        });
+    console.log(
+        "Google Drive OAuth initialized."
+    );
 
 }
 
-const drive =
-    google.drive({
-
-        version: "v3",
-
-        auth: auth
-
-    });
-
 /* =========================================================
-   HEALTH CHECK
+   HEALTH
 ========================================================= */
 
 app.get(
@@ -328,6 +435,16 @@ app.get(
     async function (req, res) {
 
         try {
+
+            if (!drive) {
+
+                return res.status(503).json({
+                    ok: false,
+                    error:
+                        "Google Drive is still initializing."
+                });
+
+            }
 
             const response =
                 await drive.files.get({
@@ -352,7 +469,9 @@ app.get(
 
             });
 
-        } catch (error) {
+        }
+
+        catch (error) {
 
             console.error(
                 "HEALTH ERROR:",
@@ -374,7 +493,7 @@ app.get(
 );
 
 /* =========================================================
-   GET FOLDER
+   FIND FOLDER
 ========================================================= */
 
 async function findFolder(
@@ -394,7 +513,8 @@ async function findFolder(
             fields:
                 "files(id,name)",
 
-            pageSize: 10
+            pageSize:
+                10
 
         });
 
@@ -414,7 +534,7 @@ async function findFolder(
 }
 
 /* =========================================================
-   FIND CATEGORY → SUBJECT FOLDER
+   GET SUBJECT FOLDER
 ========================================================= */
 
 async function getSubjectFolder(
@@ -478,7 +598,8 @@ async function checkDuplicate(
             fields:
                 "files(id,name)",
 
-            pageSize: 1000
+            pageSize:
+                1000
 
         });
 
@@ -526,10 +647,6 @@ app.post(
 
         try {
 
-            /* ---------------------------------------------
-               CHECK FILE
-            --------------------------------------------- */
-
             if (!req.file) {
 
                 return res.status(400).json({
@@ -545,10 +662,6 @@ app.post(
 
             temporaryFile =
                 req.file.path;
-
-            /* ---------------------------------------------
-               GET FORM DATA
-            --------------------------------------------- */
 
             const roll =
                 String(
@@ -569,9 +682,7 @@ app.post(
                 )
                 .trim();
 
-            /* ---------------------------------------------
-               VALIDATE ROLL
-            --------------------------------------------- */
+            /* VALIDATE ROLL */
 
             if (!roll) {
 
@@ -601,9 +712,7 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               VALIDATE CATEGORY
-            --------------------------------------------- */
+            /* VALIDATE CATEGORY */
 
             if (
                 !category ||
@@ -621,9 +730,7 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               VALIDATE SUBJECT
-            --------------------------------------------- */
+            /* VALIDATE SUBJECT */
 
             if (
                 STRUCTURE[category]
@@ -641,9 +748,7 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               FIND DRIVE FOLDER
-            --------------------------------------------- */
+            /* FIND FOLDER */
 
             const folder =
                 await getSubjectFolder(
@@ -651,9 +756,7 @@ app.post(
                     subject
                 );
 
-            /* ---------------------------------------------
-               DUPLICATE CHECK
-            --------------------------------------------- */
+            /* DUPLICATE */
 
             const duplicate =
                 await checkDuplicate(
@@ -676,9 +779,7 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               FINAL FILE NAME
-            --------------------------------------------- */
+            /* FILE NAME */
 
             const cleanName =
                 cleanFileName(
@@ -694,9 +795,7 @@ app.post(
             const finalName =
                 `${roll}_${safeSubject}_${category}_${cleanName}`;
 
-            /* ---------------------------------------------
-               MIME TYPE
-            --------------------------------------------- */
+            /* MIME */
 
             let mimeType =
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -712,10 +811,7 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               UPLOAD DIRECTLY FROM TEMPORARY FILE
-               TO GOOGLE DRIVE
-            --------------------------------------------- */
+            /* GOOGLE DRIVE UPLOAD */
 
             const response =
                 await drive.files.create({
@@ -754,9 +850,7 @@ app.post(
             const file =
                 response.data;
 
-            /* ---------------------------------------------
-               MAKE FILE VIEWABLE
-               --------------------------------------------- */
+            /* PUBLIC VIEW */
 
             try {
 
@@ -777,7 +871,9 @@ app.post(
 
                 });
 
-            } catch (shareError) {
+            }
+
+            catch (shareError) {
 
                 console.log(
                     "Public permission could not be applied:",
@@ -786,29 +882,17 @@ app.post(
 
             }
 
-            /* ---------------------------------------------
-               DRIVE URL
-            --------------------------------------------- */
-
             const presentationUrl =
                 `https://docs.google.com/presentation/d/${file.id}/edit`;
 
             const driveUrl =
                 `https://drive.google.com/file/d/${file.id}/view`;
 
-            /* ---------------------------------------------
-               DELETE TEMPORARY FILE
-            --------------------------------------------- */
-
             safeDelete(
                 temporaryFile
             );
 
             temporaryFile = null;
-
-            /* ---------------------------------------------
-               RESPONSE
-            --------------------------------------------- */
 
             res.json({
 
@@ -840,7 +924,9 @@ app.post(
 
             });
 
-        } catch (error) {
+        }
+
+        catch (error) {
 
             console.error(
                 "UPLOAD ERROR:",
@@ -1006,9 +1092,7 @@ app.get(
 
             }
 
-            /* ---------------------------------------------
-               SORT USING ROLL LIST
-            --------------------------------------------- */
+            /* SORT BY ROLL */
 
             submissions.sort(
                 function (a, b) {
@@ -1034,12 +1118,17 @@ app.get(
                 count:
                     submissions.length,
 
+                totalStudents:
+                    ROLLS.length,
+
                 submissions:
                     submissions
 
             });
 
-        } catch (error) {
+        }
+
+        catch (error) {
 
             console.error(
                 "GET PPT ERROR:",
@@ -1066,6 +1155,26 @@ app.get(
 
 app.get(
     "/api/structure",
+    function (req, res) {
+
+        res.json({
+
+            ok: true,
+
+            structure:
+                STRUCTURE
+
+        });
+
+    }
+);
+
+/* =========================================================
+   GET CONFIG
+========================================================= */
+
+app.get(
+    "/api/config",
     function (req, res) {
 
         res.json({
@@ -1177,7 +1286,9 @@ function safeDelete(
 
         }
 
-    } catch (error) {
+    }
+
+    catch (error) {
 
         console.log(
             "Temporary file cleanup failed:",
@@ -1238,37 +1349,76 @@ app.use(
    START SERVER
 ========================================================= */
 
-app.listen(
-    PORT,
-    "0.0.0.0",
-    function () {
+async function startServer() {
 
-        console.log("");
-        console.log(
-            "===================================="
+    try {
+
+        await initializeGoogleDrive();
+
+        app.listen(
+            PORT,
+            "0.0.0.0",
+            function () {
+
+                console.log("");
+
+                console.log(
+                    "===================================="
+                );
+
+                console.log(
+                    "          CSM PPT SYSTEM"
+                );
+
+                console.log(
+                    "===================================="
+                );
+
+                console.log(
+                    `Server: http://localhost:${PORT}`
+                );
+
+                console.log(
+                    `Student: http://localhost:${PORT}/`
+                );
+
+                console.log(
+                    `Dashboard: http://localhost:${PORT}/dashboard.html`
+                );
+
+                console.log(
+                    `Health: http://localhost:${PORT}/api/health`
+                );
+
+                console.log(
+                    "===================================="
+                );
+
+                console.log("");
+
+            }
         );
-        console.log(
-            "          CSM PPT SYSTEM"
-        );
-        console.log(
-            "===================================="
-        );
-        console.log(
-            `Server: http://localhost:${PORT}`
-        );
-        console.log(
-            `Student: http://localhost:${PORT}/`
-        );
-        console.log(
-            `Dashboard: http://localhost:${PORT}/dashboard.html`
-        );
-        console.log(
-            `Health: http://localhost:${PORT}/api/health`
-        );
-        console.log(
-            "===================================="
-        );
-        console.log("");
 
     }
-);
+
+    catch (error) {
+
+        console.error("");
+
+        console.error(
+            "GOOGLE DRIVE INITIALIZATION FAILED"
+        );
+
+        console.error(
+            error.message
+        );
+
+        console.error("");
+
+        process.exit(1);
+
+    }
+
+}
+
+startServer();

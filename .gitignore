@@ -1,4 +1,5 @@
-node_modules/
+credentials.json
+token.json
 service-account.json
+node_modules/
 uploads/
-.env
