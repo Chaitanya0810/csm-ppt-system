@@ -13,6 +13,8 @@ const app = express();
 ========================================================= */
 
 const PORT = process.env.PORT || 3000;
+const LOAD_TEST_MODE = process.env.LOAD_TEST_MODE === "true";
+const LOAD_TEST_KEY = process.env.LOAD_TEST_KEY || "";
 
 const ROOT_FOLDER_ID =
     "1JU3lJfEDZtn0Y5N-ZTP134wTq0X5FKLy";
@@ -713,6 +715,17 @@ async function checkDuplicate(
 app.post(
     "/api/upload",
 
+    function (req, res, next) {
+        if (LOAD_TEST_MODE &&
+            (!LOAD_TEST_KEY || req.get("x-load-test-key") !== LOAD_TEST_KEY)) {
+            return res.status(403).json({
+                ok: false,
+                error: "Load test access denied."
+            });
+        }
+        next();
+    },
+
     upload.single("file"),
 
     async function (req, res) {
@@ -832,46 +845,6 @@ app.post(
             }
 
 
-            /* FIND FOLDER */
-
-            const folder =
-                await getSubjectFolder(
-
-                    category,
-
-                    subject
-
-                );
-
-
-            /* DUPLICATE */
-
-            const duplicate =
-                await checkDuplicate(
-
-                    folder.id,
-
-                    roll
-
-                );
-
-
-            if (duplicate) {
-
-                return res.status(409).json({
-
-                    ok: false,
-
-                    duplicate: true,
-
-                    error:
-                        `You have already submitted a PPT for ${subject} - ${category}.`
-
-                });
-
-            }
-
-
             /* FILE NAME */
 
             const cleanName =
@@ -889,6 +862,56 @@ app.post(
 
             const finalName =
                 `${roll}_${safeSubject}_${category}_${cleanName}`;
+
+
+            /* LOAD TEST MODE: exercise multipart parsing and disk I/O,
+               but never query or write to Google Drive. */
+
+            if (LOAD_TEST_MODE) {
+
+                const fileSize = req.file.size;
+
+                safeDelete(temporaryFile);
+                temporaryFile = null;
+
+                return res.json({
+                    ok: true,
+                    loadTest: true,
+                    message: "Load test upload accepted; Google Drive was not contacted.",
+                    fileName: finalName,
+                    size: fileSize
+                });
+
+            }
+
+
+            /* FIND FOLDER */
+
+            const folder =
+                await getSubjectFolder(
+                    category,
+                    subject
+                );
+
+
+            /* DUPLICATE */
+
+            const duplicate =
+                await checkDuplicate(
+                    folder.id,
+                    roll
+                );
+
+
+            if (duplicate) {
+
+                return res.status(409).json({
+                    ok: false,
+                    duplicate: true,
+                    error: `You have already submitted a PPT for ${subject} - ${category}.`
+                });
+
+            }
 
 
             /* MIME */
@@ -1505,7 +1528,14 @@ async function startServer() {
 
     try {
 
-        await initializeGoogleDrive();
+        if (LOAD_TEST_MODE) {
+            if (!LOAD_TEST_KEY) {
+                throw new Error("LOAD_TEST_KEY must be set when LOAD_TEST_MODE=true.");
+            }
+            console.warn("LOAD TEST MODE ENABLED: uploads are discarded and Google Drive is disabled.");
+        } else {
+            await initializeGoogleDrive();
+        }
 
 
         app.listen(
