@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
 const { cert, initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
@@ -17,6 +18,15 @@ function createMultiAdmin(app, { port, loadTestMode }) {
   let oauthConfig;
   let configError;
   const ownerEmail = String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+  const smtpUser = String(process.env.SMTP_USER || '').trim();
+  const smtpPassword = String(process.env.SMTP_APP_PASSWORD || '').replace(/\s/g, '');
+  const smtpPort = Number(process.env.SMTP_PORT || 465);
+  const mailer = smtpUser && smtpPassword ? nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: smtpPort,
+    secure: smtpPort === 465,
+    auth: { user: smtpUser, pass: smtpPassword }
+  }) : null;
   const upload = multer({
     dest: path.join(__dirname, 'uploads'),
     limits: { fileSize: 100 * 1024 * 1024 },
@@ -46,6 +56,21 @@ function createMultiAdmin(app, { port, loadTestMode }) {
   };
   const oauthClient = (redirectUri) => new google.auth.OAuth2(oauthConfig.clientId, oauthConfig.clientSecret, redirectUri);
   const redirectUri = (req) => `${req.protocol}://${req.get('host')}/auth/google/callback`;
+  async function notifyOwnerOfAccessRequest(req, account) {
+    if (!ownerEmail) return false;
+    if (!mailer) {
+      console.warn('Admin access request is pending; email sender is not configured.');
+      return false;
+    }
+    const adminPage = `${req.protocol}://${req.get('host')}/admin.html`;
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || smtpUser,
+      to: ownerEmail,
+      subject: 'CSM PPT admin access request',
+      text: `${account.name || account.email} (${account.email}) requested admin access to CSM PPT.\n\nReview and approve the request here: ${adminPage}`
+    });
+    return true;
+  }
   const key = () => Buffer.from(process.env.MULTI_ADMIN_ENCRYPTION_KEY, 'hex');
   const encrypt = (value) => {
     const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', key(), iv);
@@ -144,6 +169,12 @@ function createMultiAdmin(app, { port, loadTestMode }) {
       await adminRef.set(account, { merge: true });
       const sessionId = crypto.randomBytes(32).toString('base64url');
       await db.collection('adminSessions').doc(sessionId).set({ adminId, expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
+      const isPending = !isOwner && (existingAdmin.exists ? existingAdmin.data().approved === false : true);
+      if (isPending && !existingAdmin.data()?.requestNotificationSentAt) {
+        try {
+          if (await notifyOwnerOfAccessRequest(req, account)) await adminRef.set({ requestNotificationSentAt: new Date() }, { merge: true });
+        } catch (e) { console.error('Admin request email failed:', e.message); }
+      }
       res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${encodeURIComponent(`${sessionId}.${sign(sessionId)}`)}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=1209600`);
       res.redirect('/admin.html');
     } catch (e) { console.error('OAuth callback failed:', e.message); res.status(500).send('Google sign-in failed. Check Render logs and OAuth redirect URI settings.'); }

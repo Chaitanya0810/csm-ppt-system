@@ -27,6 +27,11 @@ In the Render service's **Environment** settings, add:
 | `GOOGLE_OAUTH_CREDENTIALS_JSON` | The complete Google OAuth client JSON, on one line |
 | `MULTI_ADMIN_ENCRYPTION_KEY` | A fresh 64-character hexadecimal secret (32 random bytes) |
 | `SUPER_ADMIN_EMAIL` | The verified Google email that owns and manages this app's admin accounts |
+| `SMTP_USER` | Gmail address used to send access-request notifications |
+| `SMTP_APP_PASSWORD` | Gmail App Password (or provider SMTP password); keep it secret |
+| `SMTP_HOST` | Optional; defaults to `smtp.gmail.com` |
+| `SMTP_PORT` | Optional; defaults to `465` |
+| `SMTP_FROM` | Optional; defaults to `SMTP_USER` |
 
 Generate the encryption key locally with Node.js:
 
@@ -39,6 +44,8 @@ Never commit these values or paste them into source files. Keep a secure backup 
 After saving the variables, let Render redeploy. Open `/admin.html` on the Render URL and sign in with Google.
 
 The account matching `SUPER_ADMIN_EMAIL` sees all admins and classes, can manage any class and view its submissions, and can approve, disable, re-enable, or revoke admin access. New admins stay pending until the owner approves them. Disabling or revoking an admin removes the app's saved Drive token and active sessions; the admin must sign in again after approval or re-enabling. This grants app-level control only; Google Drive and Cloud Console permissions remain governed by Google.
+
+For request emails, configure SMTP variables in Render. With Gmail, create an App Password from the owner account's Google Account security settings (2-Step Verification must be on), then put it in `SMTP_APP_PASSWORD` in Render. Never paste it into chat or commit it. If SMTP is not configured, requests remain visible in App owner controls, but no email is sent.
 
 ## 4. Add a class
 
