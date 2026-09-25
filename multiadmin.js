@@ -12,7 +12,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
 
-function createMultiAdmin(app, { port, loadTestMode }) {
+function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   if (loadTestMode || process.env.MULTI_ADMIN_ENABLED === 'false') return;
   let db;
   let oauthConfig;
@@ -207,6 +207,39 @@ function createMultiAdmin(app, { port, loadTestMode }) {
       const a = doc.data();
       return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, approved: a.approved !== false || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
     }) });
+  });
+  app.post('/api/owner/import-legacy', requireOwner, async (req, res) => {
+    try {
+      if (!legacyConfig?.rootFolderId || !legacyConfig?.structure || !Array.isArray(legacyConfig?.rolls)) {
+        return res.status(503).json({ ok: false, error: 'The previous class setup is not available in this deployment.' });
+      }
+      const marker = db.collection('legacyImports').doc(req.adminId);
+      const previous = await marker.get();
+      if (previous.exists) {
+        const importedClass = await db.collection('classes').doc(previous.data().classId).get();
+        if (importedClass.exists) {
+          const c = importedClass.data();
+          return res.json({ ok: true, alreadyImported: true, name: c.name, studentUrl: `${req.protocol}://${req.get('host')}/?class=${c.slug}`, rolls: c.rolls.length });
+        }
+      }
+      // This is the exact root folder from the previous app configuration. Verify the
+      // owner’s Drive connection before saving; never move, rename, or delete Drive files.
+      const drive = await getDrive(req.adminId);
+      const root = await drive.files.get({ fileId: legacyConfig.rootFolderId, fields: 'id,mimeType,name' });
+      if (root.data.mimeType !== 'application/vnd.google-apps.folder') return res.status(400).json({ ok: false, error: 'The previous Drive ID is not a folder.' });
+      const cleanRolls = [...new Set(legacyConfig.rolls.map(v => String(v).trim().toUpperCase()).filter(Boolean))];
+      const cleanStructure = Object.fromEntries(Object.entries(legacyConfig.structure).map(([category, subjects]) => [category, [...subjects]]));
+      const slug = crypto.randomBytes(12).toString('base64url');
+      const classRef = db.collection('classes').doc();
+      const batch = db.batch();
+      batch.set(classRef, { adminId: req.adminId, slug, name: 'Previous class setup', rootFolderId: root.data.id, structure: cleanStructure, rolls: cleanRolls, legacyImport: true, createdAt: new Date() });
+      batch.set(marker, { classId: classRef.id, importedAt: new Date(), rootFolderId: root.data.id });
+      await batch.commit();
+      res.json({ ok: true, name: 'Previous class setup', studentUrl: `${req.protocol}://${req.get('host')}/?class=${slug}`, rolls: cleanRolls.length });
+    } catch (e) {
+      console.error('Previous setup import failed:', e.message);
+      res.status(400).json({ ok: false, error: e.message || 'Could not import the previous class setup.' });
+    }
   });
   app.post('/api/owner/admins/:adminId/access', requireOwner, async (req, res) => {
     const targetId = String(req.params.adminId || '');

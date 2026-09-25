@@ -181,7 +181,7 @@ app.use(
 app.set("trust proxy", 1);
 
 // Register tenant-aware routes before the legacy single-admin API routes.
-createMultiAdmin(app, { port: PORT, loadTestMode: LOAD_TEST_MODE });
+createMultiAdmin(app, { port: PORT, loadTestMode: LOAD_TEST_MODE, legacyConfig: { rootFolderId: ROOT_FOLDER_ID, structure: STRUCTURE, rolls: ROLLS } });
 
 
 /* =========================================================
