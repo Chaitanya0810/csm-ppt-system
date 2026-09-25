@@ -9,6 +9,13 @@
 
     <title>CSM PPT Submission</title>
 
+    <script>
+        const classCode = new URLSearchParams(location.search).get("class");
+        location.replace(classCode
+            ? `/student.html?class=${encodeURIComponent(classCode)}`
+            : "/admin.html");
+    </script>
+
     <style>
         * {
             box-sizing: border-box;

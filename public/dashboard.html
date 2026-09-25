@@ -264,6 +264,7 @@ const content =
 ========================================================= */
 
 let structure = {};
+const classSlug = new URLSearchParams(location.search).get("class") || "";
 
 
 /* =========================================================
@@ -275,7 +276,7 @@ async function loadConfig() {
     try {
 
         const response =
-            await fetch("/api/config");
+            await fetch(`/api/config?class=${encodeURIComponent(classSlug)}`);
 
         if (!response.ok) {
 
@@ -448,7 +449,7 @@ async function loadPPTs() {
     try {
 
         const url =
-            `/api/ppts?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
+            `/api/ppts?class=${encodeURIComponent(classSlug)}&category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
 
 
         const response =

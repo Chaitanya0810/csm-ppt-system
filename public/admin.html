@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CSM PPT · Admin</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#172033;font:16px Arial,sans-serif}.wrap{max-width:850px;margin:36px auto;padding:20px}.card{background:#fff;padding:24px;border-radius:14px;box-shadow:0 5px 24px #17203312;margin:16px 0}h1{margin:0 0 8px}p{color:#5b6578;line-height:1.5}label{display:block;font-weight:700;margin:16px 0 6px}input,textarea{width:100%;padding:12px;border:1px solid #ccd3df;border-radius:8px;font:inherit}textarea{min-height:100px;font-family:ui-monospace,monospace}button,.btn{background:#2563eb;color:white;border:0;border-radius:8px;padding:12px 16px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;margin:8px 8px 0 0}button.secondary{background:#64748b}button.danger{background:#b91c1c}.muted{color:#64748b;font-size:14px}.row{padding:14px 0;border-top:1px solid #e5e9f0}.error{color:#b91c1c}.success{color:#15803d}#setup{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px;display:none}
+  </style>
+</head>
+<body><main class="wrap">
+  <h1>CSM PPT Admin</h1><p>Sign in with Google, connect a Drive folder for each class, and share that class’s student link.</p>
+  <section class="card" id="login"><div id="identity">Checking sign-in…</div><div id="setup"></div><a class="btn" href="/auth/google">Sign in with Google</a><button class="secondary" id="logout" hidden>Sign out</button></section>
+  <section class="card" id="create" hidden>
+    <h2>Add a class</h2>
+    <label for="name">Class name</label><input id="name" placeholder="e.g. 2-1 CSE">
+    <label for="folder">Google Drive folder ID</label><input id="folder" placeholder="Paste the folder ID from its Drive URL">
+    <p class="muted">The folder must belong to the Google account you signed in with. Category and subject folders will be created inside it when needed.</p>
+    <label for="structure">Categories and subjects (JSON)</label><textarea id="structure">{
+  "Lab": ["Node-JS", "CM", "JAVA", "DBMS", "SE", "GS"],
+  "Theory": ["MSF", "JAVA", "COA", "DBMS", "SE"],
+  "Project": ["Node-JS", "CM", "JAVA", "DBMS", "SE"]
+}</textarea>
+    <label for="rolls">Student roll numbers (one per line)</label><textarea id="rolls" placeholder="257R1A66C9&#10;257R1A66D0"></textarea>
+    <button id="save">Create class and student link</button><div id="message"></div>
+  </section>
+  <section class="card" id="classes" hidden><h2>Your classes</h2><div id="list"></div></section>
+</main><script>
+const identity=document.getElementById('identity'), setup=document.getElementById('setup'), create=document.getElementById('create'), classes=document.getElementById('classes'), list=document.getElementById('list');
+async function api(url,opts={}){const r=await fetch(url,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||`Request failed (${r.status})`);return d}
+async function load(){try{const me=await api('/api/admin/me');if(!me.signedIn){identity.textContent='Not signed in.';return}identity.textContent=`Signed in as ${me.email}`;create.hidden=false;classes.hidden=false;document.getElementById('logout').hidden=false;setup.style.display='none';await refresh()}catch(e){identity.textContent='Sign-in setup is not ready.';setup.style.display='block';setup.textContent=e.message}}
+async function refresh(){try{const d=await api('/api/admin/classes');list.innerHTML='';if(!d.classes.length){list.textContent='No classes yet.';return}for(const c of d.classes){const row=document.createElement('div');row.className='row';const url=`${location.origin}/student.html?class=${encodeURIComponent(c.slug)}`;row.innerHTML=`<strong></strong><div class="muted"></div><a class="btn" target="_blank" rel="noopener" href="${url}">Student link</a><a class="btn secondary" href="/dashboard.html?class=${encodeURIComponent(c.slug)}">Submissions</a><button class="danger">Delete</button>`;row.querySelector('strong').textContent=c.name;row.querySelector('.muted').textContent=`${c.rolls.length} students`;row.querySelector('button').onclick=async()=>{if(!confirm(`Delete class ${c.name}? This will not delete files from Drive.`))return;await api(`/api/admin/classes/${encodeURIComponent(c.slug)}`,{method:'DELETE'});await refresh()};list.append(row)}}catch(e){list.textContent=e.message}}
+document.getElementById('save').onclick=async()=>{const m=document.getElementById('message');m.className='';try{const structure=JSON.parse(document.getElementById('structure').value);const d=await api('/api/admin/classes',{method:'POST',body:JSON.stringify({name:document.getElementById('name').value,rootFolderId:document.getElementById('folder').value,structure,rolls:document.getElementById('rolls').value})});m.className='success';m.innerHTML=`Class created. Share this link with students: <a href="${d.studentUrl}">${d.studentUrl}</a>`;await refresh()}catch(e){m.className='error';m.textContent=e.message}};
+document.getElementById('logout').onclick=async()=>{await api('/api/logout',{method:'POST'});location.reload()};load();
+</script></body></html>

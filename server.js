@@ -3,6 +3,7 @@ const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
 const { authenticate } = require("@google-cloud/local-auth");
+const createMultiAdmin = require("./multiadmin");
 const path = require("path");
 const fs = require("fs");
 
@@ -174,6 +175,13 @@ app.use(
         path.join(__dirname, "public")
     )
 );
+
+// Render sits behind a TLS proxy. Trust its forwarded protocol so OAuth uses
+// the public https callback URL and cookies are marked Secure.
+app.set("trust proxy", 1);
+
+// Register tenant-aware routes before the legacy single-admin API routes.
+createMultiAdmin(app, { port: PORT, loadTestMode: LOAD_TEST_MODE });
 
 
 /* =========================================================
@@ -525,10 +533,7 @@ app.get(
 
         catch (error) {
 
-            console.error(
-                "HEALTH ERROR:",
-                error
-            );
+            console.error("HEALTH ERROR:", error.message);
 
 
             res.status(500).json({
@@ -1057,10 +1062,7 @@ app.post(
 
         catch (error) {
 
-            console.error(
-                "UPLOAD ERROR:",
-                error
-            );
+            console.error("UPLOAD ERROR:", error.message);
 
 
             if (
@@ -1287,10 +1289,7 @@ app.get(
 
         catch (error) {
 
-            console.error(
-                "GET PPT ERROR:",
-                error
-            );
+            console.error("GET PPT ERROR:", error.message);
 
 
             res.status(500).json({
@@ -1482,10 +1481,7 @@ app.use(
         next
     ) {
 
-        console.error(
-            "SERVER ERROR:",
-            error
-        );
+        console.error("SERVER ERROR:", error.message);
 
 
         if (
@@ -1533,8 +1529,10 @@ async function startServer() {
                 throw new Error("LOAD_TEST_KEY must be set when LOAD_TEST_MODE=true.");
             }
             console.warn("LOAD TEST MODE ENABLED: uploads are discarded and Google Drive is disabled.");
-        } else {
+        } else if (process.env.MULTI_ADMIN_ENABLED === "false") {
             await initializeGoogleDrive();
+        } else {
+            console.log("Multi-admin mode enabled; Google Drive is connected per admin login.");
         }
 
 
