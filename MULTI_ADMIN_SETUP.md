@@ -26,6 +26,7 @@ In the Render service's **Environment** settings, add:
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | The complete downloaded Firebase service-account JSON, on one line |
 | `GOOGLE_OAUTH_CREDENTIALS_JSON` | The complete Google OAuth client JSON, on one line |
 | `MULTI_ADMIN_ENCRYPTION_KEY` | A fresh 64-character hexadecimal secret (32 random bytes) |
+| `SUPER_ADMIN_EMAIL` | The verified Google email that owns and manages this app's admin accounts |
 
 Generate the encryption key locally with Node.js:
 
@@ -36,6 +37,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Never commit these values or paste them into source files. Keep a secure backup of the encryption key: changing or losing it makes saved Google refresh tokens unreadable, and admins will need to sign in again.
 
 After saving the variables, let Render redeploy. Open `/admin.html` on the Render URL and sign in with Google.
+
+The account matching `SUPER_ADMIN_EMAIL` sees all admins and classes, can manage any class and view its submissions, and can disable or re-enable admin access. Disabling an admin removes the app's saved Drive token and active sessions; the admin must sign in again after re-enabling. This grants app-level control only; Google Drive and Cloud Console permissions remain governed by Google.
 
 ## 4. Add a class
 

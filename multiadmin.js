@@ -15,6 +15,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
   let db;
   let oauthConfig;
   let configError;
+  const ownerEmail = String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
   const upload = multer({
     dest: path.join(__dirname, 'uploads'),
     limits: { fileSize: 100 * 1024 * 1024 },
@@ -64,11 +65,26 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     if (!id || !safeEqual(mac, sign(id))) return null;
     const snap = await db.collection('adminSessions').doc(id).get();
     if (!snap.exists || snap.data().expiresAt.toMillis() < Date.now()) return null;
-    return snap.data().adminId;
+    const adminId = snap.data().adminId;
+    const admin = await db.collection('admins').doc(adminId).get();
+    if (!admin.exists || admin.data().disabled === true) return null;
+    return adminId;
   }
   const requireAdmin = (req, res, next) => ready(req, res, async () => {
-    try { req.adminId = await currentAdmin(req); if (!req.adminId) return res.status(401).json({ ok: false, error: 'Sign in as an admin first.' }); next(); }
+    try {
+      req.adminId = await currentAdmin(req);
+      if (!req.adminId) return res.status(401).json({ ok: false, error: 'Sign in as an admin first.' });
+      const account = await db.collection('admins').doc(req.adminId).get();
+      req.adminEmail = String(account.data()?.email || '').toLowerCase();
+      req.isOwner = Boolean(ownerEmail && req.adminEmail === ownerEmail);
+      next();
+    }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  const requireOwner = (req, res, next) => requireAdmin(req, res, () => {
+    if (!ownerEmail) return res.status(503).json({ ok: false, error: 'The app owner account is not configured.' });
+    if (!req.isOwner) return res.status(403).json({ ok: false, error: 'Only the app owner can manage all admins.' });
+    next();
   });
   async function classDoc(slug) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
@@ -115,8 +131,13 @@ function createMultiAdmin(app, { port, loadTestMode }) {
       if (!tokens.refresh_token) throw new Error('Google did not return a refresh token. Revoke this app in your Google account and retry sign-in.');
       const auth = oauthClient(redirectUri(req)); auth.setCredentials(tokens);
       const userInfo = await google.oauth2({ version: 'v2', auth }).userinfo.get();
+      if (userInfo.data.verified_email !== true || !userInfo.data.email) throw new Error('Google did not verify this email address.');
       const adminId = userInfo.data.id;
-      await db.collection('admins').doc(adminId).set({ email: userInfo.data.email, name: userInfo.data.name || '', refreshTokenEncrypted: encrypt(tokens.refresh_token), updatedAt: new Date() }, { merge: true });
+      const adminRef = db.collection('admins').doc(adminId), existingAdmin = await adminRef.get();
+      if (existingAdmin.exists && existingAdmin.data().disabled === true) return res.status(403).send('This admin account has been disabled by the app owner.');
+      const account = { email: userInfo.data.email, name: userInfo.data.name || '', refreshTokenEncrypted: encrypt(tokens.refresh_token), updatedAt: new Date() };
+      if (!existingAdmin.exists) account.disabled = false;
+      await adminRef.set(account, { merge: true });
       const sessionId = crypto.randomBytes(32).toString('base64url');
       await db.collection('adminSessions').doc(sessionId).set({ adminId, expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
       res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${encodeURIComponent(`${sessionId}.${sign(sessionId)}`)}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=1209600`);
@@ -129,12 +150,49 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
   });
   app.get('/api/admin/me', ready, async (req, res) => {
-    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); res.json({ ok: true, signedIn: true, email: d.email, name: d.name }); }
+    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner: Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail) }); }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.get('/api/admin/classes', requireAdmin, async (req, res) => {
-    const q = await db.collection('classes').where('adminId', '==', req.adminId).get();
-    res.json({ ok: true, classes: q.docs.map(d => publicClass(d.data())) });
+    const q = req.isOwner ? await db.collection('classes').get() : await db.collection('classes').where('adminId', '==', req.adminId).get();
+    const classes = [];
+    for (const doc of q.docs) {
+      const c = doc.data();
+      const item = { ...publicClass(c), adminId: c.adminId };
+      if (req.isOwner) item.adminEmail = (await db.collection('admins').doc(c.adminId).get()).data()?.email || 'Unknown admin';
+      classes.push(item);
+    }
+    res.json({ ok: true, owner: req.isOwner, classes });
+  });
+  app.get('/api/owner/admins', requireOwner, async (req, res) => {
+    const [admins, classes] = await Promise.all([db.collection('admins').get(), db.collection('classes').get()]);
+    const counts = new Map();
+    for (const doc of classes.docs) counts.set(doc.data().adminId, (counts.get(doc.data().adminId) || 0) + 1);
+    res.json({ ok: true, admins: admins.docs.map(doc => {
+      const a = doc.data();
+      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, classCount: counts.get(doc.id) || 0 };
+    }) });
+  });
+  app.post('/api/owner/admins/:adminId/access', requireOwner, async (req, res) => {
+    const targetId = String(req.params.adminId || '');
+    const disabled = req.body?.disabled;
+    if (!targetId || typeof disabled !== 'boolean') return res.status(400).json({ ok: false, error: 'Choose whether to enable or disable this admin.' });
+    if (targetId === req.adminId) return res.status(400).json({ ok: false, error: 'The owner account cannot disable itself.' });
+    const ref = db.collection('admins').doc(targetId), target = await ref.get();
+    if (!target.exists) return res.status(404).json({ ok: false, error: 'Admin not found.' });
+    if (String(target.data().email || '').toLowerCase() === ownerEmail) return res.status(400).json({ ok: false, error: 'The owner account cannot be disabled.' });
+    const changes = { disabled, accessUpdatedAt: new Date() };
+    if (disabled) changes.refreshTokenEncrypted = firebaseAdmin.firestore.FieldValue.delete();
+    await ref.set(changes, { merge: true });
+    if (disabled) {
+      const sessions = await db.collection('adminSessions').where('adminId', '==', targetId).get();
+      for (let i = 0; i < sessions.docs.length; i += 450) {
+        const batch = db.batch();
+        for (const session of sessions.docs.slice(i, i + 450)) batch.delete(session.ref);
+        await batch.commit();
+      }
+    }
+    res.json({ ok: true, disabled });
   });
   app.post('/api/admin/classes', requireAdmin, async (req, res) => {
     try {
@@ -159,7 +217,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
   });
   app.delete('/api/admin/classes/:slug', requireAdmin, async (req, res) => {
     const d = await classDoc(req.params.slug);
-    if (!d || d.data().adminId !== req.adminId) return res.status(404).json({ ok: false, error: 'Class not found.' });
+    if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
     await d.ref.delete(); res.json({ ok: true });
   });
 
@@ -187,8 +245,8 @@ function createMultiAdmin(app, { port, loadTestMode }) {
   app.get('/api/ppts', requireAdmin, async (req, res) => {
     try {
       const d = await classDoc(String(req.query.class || ''));
-      if (!d || d.data().adminId !== req.adminId) return res.status(404).json({ ok: false, error: 'Class not found.' });
-      const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || ''), drive = await getDrive(req.adminId), folderId = await subjectFolder(drive, c, category, subject);
+      if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || ''), drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
       const files = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'files(id,name,createdTime,webViewLink)', pageSize: 1000, orderBy: 'name' });
       const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => ({ roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, createdAt: f.createdTime }));
       res.json({ ok: true, subject, category, count: submissions.length, totalStudents: c.rolls.length, submissions });
@@ -198,7 +256,10 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     const slug = String(req.query.class || ''); const d = await classDoc(slug);
     if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
     const c = d.data();
-    if (await currentAdmin(req) !== c.adminId) return res.status(401).json({ ok: false, error: 'Sign in as the class admin to view submissions.' });
+    const signedInAdmin = await currentAdmin(req);
+    const signedInAccount = signedInAdmin ? await db.collection('admins').doc(signedInAdmin).get() : null;
+    const signedInEmail = String(signedInAccount?.data()?.email || '').toLowerCase();
+    if (signedInAdmin !== c.adminId && (!ownerEmail || signedInEmail !== ownerEmail)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
     res.json({ ok: true, structure: c.structure, className: c.name, totalStudents: c.rolls.length });
   });
   app.get('/api/health', ready, async (req, res) => { res.json({ ok: true, multiAdmin: true, storage: 'firestore' }); });
