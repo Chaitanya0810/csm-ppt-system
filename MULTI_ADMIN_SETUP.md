@@ -38,7 +38,7 @@ Never commit these values or paste them into source files. Keep a secure backup 
 
 After saving the variables, let Render redeploy. Open `/admin.html` on the Render URL and sign in with Google.
 
-The account matching `SUPER_ADMIN_EMAIL` sees all admins and classes, can manage any class and view its submissions, and can disable or re-enable admin access. Disabling an admin removes the app's saved Drive token and active sessions; the admin must sign in again after re-enabling. This grants app-level control only; Google Drive and Cloud Console permissions remain governed by Google.
+The account matching `SUPER_ADMIN_EMAIL` sees all admins and classes, can manage any class and view its submissions, and can approve, disable, re-enable, or revoke admin access. New admins stay pending until the owner approves them. Disabling or revoking an admin removes the app's saved Drive token and active sessions; the admin must sign in again after approval or re-enabling. This grants app-level control only; Google Drive and Cloud Console permissions remain governed by Google.
 
 ## 4. Add a class
 

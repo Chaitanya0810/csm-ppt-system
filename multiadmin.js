@@ -77,6 +77,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
       const account = await db.collection('admins').doc(req.adminId).get();
       req.adminEmail = String(account.data()?.email || '').toLowerCase();
       req.isOwner = Boolean(ownerEmail && req.adminEmail === ownerEmail);
+      if (!req.isOwner && account.data()?.approved === false) return res.status(403).json({ ok: false, error: 'Your admin access is waiting for approval from the app owner.' });
       next();
     }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -135,8 +136,10 @@ function createMultiAdmin(app, { port, loadTestMode }) {
       const adminId = userInfo.data.id;
       const adminRef = db.collection('admins').doc(adminId), existingAdmin = await adminRef.get();
       if (existingAdmin.exists && existingAdmin.data().disabled === true) return res.status(403).send('This admin account has been disabled by the app owner.');
+      const isOwner = Boolean(ownerEmail && String(userInfo.data.email).toLowerCase() === ownerEmail);
       const account = { email: userInfo.data.email, name: userInfo.data.name || '', refreshTokenEncrypted: encrypt(tokens.refresh_token), updatedAt: new Date() };
-      if (!existingAdmin.exists) account.disabled = false;
+      if (!existingAdmin.exists) { account.disabled = false; account.approved = isOwner; }
+      else if (isOwner) account.approved = true;
       await adminRef.set(account, { merge: true });
       const sessionId = crypto.randomBytes(32).toString('base64url');
       await db.collection('adminSessions').doc(sessionId).set({ adminId, expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
@@ -150,7 +153,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
   });
   app.get('/api/admin/me', ready, async (req, res) => {
-    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner: Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail) }); }
+    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, approved: owner || d.approved !== false }); }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.get('/api/admin/classes', requireAdmin, async (req, res) => {
@@ -170,21 +173,26 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     for (const doc of classes.docs) counts.set(doc.data().adminId, (counts.get(doc.data().adminId) || 0) + 1);
     res.json({ ok: true, admins: admins.docs.map(doc => {
       const a = doc.data();
-      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, classCount: counts.get(doc.id) || 0 };
+      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, approved: a.approved !== false || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
     }) });
   });
   app.post('/api/owner/admins/:adminId/access', requireOwner, async (req, res) => {
     const targetId = String(req.params.adminId || '');
-    const disabled = req.body?.disabled;
-    if (!targetId || typeof disabled !== 'boolean') return res.status(400).json({ ok: false, error: 'Choose whether to enable or disable this admin.' });
+    const action = req.body?.action;
+    if (!targetId || !['approve', 'disable', 'enable', 'revoke'].includes(action)) return res.status(400).json({ ok: false, error: 'Choose a valid admin access action.' });
     if (targetId === req.adminId) return res.status(400).json({ ok: false, error: 'The owner account cannot disable itself.' });
     const ref = db.collection('admins').doc(targetId), target = await ref.get();
     if (!target.exists) return res.status(404).json({ ok: false, error: 'Admin not found.' });
     if (String(target.data().email || '').toLowerCase() === ownerEmail) return res.status(400).json({ ok: false, error: 'The owner account cannot be disabled.' });
-    const changes = { disabled, accessUpdatedAt: new Date() };
-    if (disabled) changes.refreshTokenEncrypted = firebaseAdmin.firestore.FieldValue.delete();
+    const changes = { accessUpdatedAt: new Date() };
+    if (action === 'approve') Object.assign(changes, { approved: true, disabled: false });
+    if (action === 'disable') changes.disabled = true;
+    if (action === 'enable') changes.disabled = false;
+    if (action === 'revoke') Object.assign(changes, { approved: false, disabled: true });
+    const removeAccess = action === 'disable' || action === 'revoke';
+    if (removeAccess) changes.refreshTokenEncrypted = firebaseAdmin.firestore.FieldValue.delete();
     await ref.set(changes, { merge: true });
-    if (disabled) {
+    if (removeAccess) {
       const sessions = await db.collection('adminSessions').where('adminId', '==', targetId).get();
       for (let i = 0; i < sessions.docs.length; i += 450) {
         const batch = db.batch();
@@ -192,7 +200,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
         await batch.commit();
       }
     }
-    res.json({ ok: true, disabled });
+    res.json({ ok: true, approved: action === 'approve' || (action !== 'revoke' && target.data().approved !== false), disabled: action === 'disable' || action === 'revoke' || (action === 'enable' ? false : target.data().disabled === true) });
   });
   app.post('/api/admin/classes', requireAdmin, async (req, res) => {
     try {
