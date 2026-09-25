@@ -219,6 +219,12 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         const importedClass = await db.collection('classes').doc(previous.data().classId).get();
         if (importedClass.exists) {
           const c = importedClass.data();
+          if (legacyConfig.slug && c.slug !== legacyConfig.slug) {
+            const slugOwner = await classDoc(legacyConfig.slug);
+            if (slugOwner && slugOwner.id !== importedClass.id) return res.status(409).json({ ok: false, error: 'The requested student link is already assigned to another class.' });
+            await importedClass.ref.set({ slug: legacyConfig.slug }, { merge: true });
+            c.slug = legacyConfig.slug;
+          }
           return res.json({ ok: true, alreadyImported: true, name: c.name, studentUrl: `${req.protocol}://${req.get('host')}/?class=${c.slug}`, rolls: c.rolls.length });
         }
       }
@@ -229,7 +235,9 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (root.data.mimeType !== 'application/vnd.google-apps.folder') return res.status(400).json({ ok: false, error: 'The previous Drive ID is not a folder.' });
       const cleanRolls = [...new Set(legacyConfig.rolls.map(v => String(v).trim().toUpperCase()).filter(Boolean))];
       const cleanStructure = Object.fromEntries(Object.entries(legacyConfig.structure).map(([category, subjects]) => [category, [...subjects]]));
-      const slug = crypto.randomBytes(12).toString('base64url');
+      const slug = legacyConfig.slug || crypto.randomBytes(12).toString('base64url');
+      const slugOwner = await classDoc(slug);
+      if (slugOwner) return res.status(409).json({ ok: false, error: 'The requested student link is already assigned to another class.' });
       const classRef = db.collection('classes').doc();
       const batch = db.batch();
       batch.set(classRef, { adminId: req.adminId, slug, name: 'Previous class setup', rootFolderId: root.data.id, structure: cleanStructure, rolls: cleanRolls, legacyImport: true, createdAt: new Date() });
