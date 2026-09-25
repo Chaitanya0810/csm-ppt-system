@@ -131,6 +131,16 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
   }
+  async function canViewClass(req, c) {
+    if (c.publicDashboard === true) return true;
+    const id = await currentAdmin(req);
+    if (!id) return false;
+    const account = await db.collection('admins').doc(id).get();
+    const a = account.data() || {};
+    const email = String(a.email || '').toLowerCase();
+    const owner = Boolean(ownerEmail && email === ownerEmail);
+    return owner || (id === c.adminId && a.approved === true && a.disabled !== true);
+  }
   async function getDrive(adminId) {
     const ref = db.collection('admins').doc(adminId), snap = await ref.get();
     if (!snap.exists) throw new Error('Admin account is missing. Sign in again.');
@@ -257,7 +267,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const classes = [];
     for (const doc of q.docs) {
       const c = doc.data();
-      const item = { ...publicClass(c), adminId: c.adminId };
+      const item = { ...publicClass(c), adminId: c.adminId, legacyImport: c.legacyImport === true, publicDashboard: c.publicDashboard === true };
       if (req.isOwner) item.adminEmail = (await db.collection('admins').doc(c.adminId).get()).data()?.email || 'Unknown admin';
       classes.push(item);
     }
@@ -311,6 +321,37 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     } catch (e) {
       console.error('Previous setup import failed:', e.message);
       res.status(400).json({ ok: false, error: uploadErrorMessage(e) });
+    }
+  });
+  app.post('/api/owner/classes/:slug/public-dashboard', requireSameOrigin, requireOwner, async (req, res) => {
+    try {
+      const d = await classDoc(String(req.params.slug || ''));
+      if (!d || d.data().legacyImport !== true) return res.status(404).json({ ok: false, error: 'Restored previous class not found.' });
+      const c = d.data(), drive = await getDrive(c.adminId);
+      let shared = 0, alreadyPublic = 0;
+      for (const [category, subjects] of Object.entries(c.structure || {})) {
+        const catId = await locateFolder(drive, c.rootFolderId, category, false);
+        for (const subject of subjects) {
+          const subjectId = await locateFolder(drive, catId, subject, false);
+          let pageToken;
+          do {
+            const page = await drive.files.list({ q: `'${subjectId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType)', pageSize: 1000, pageToken });
+            for (const file of page.data.files || []) {
+              if (!/\.(ppt|pptx)$/i.test(file.name || '')) continue;
+              const perms = await drive.permissions.list({ fileId: file.id, supportsAllDrives: true, fields: 'permissions(id,type,role)' });
+              if ((perms.data.permissions || []).some(p => p.type === 'anyone' && ['reader', 'commenter', 'writer', 'owner'].includes(p.role))) { alreadyPublic++; continue; }
+              await drive.permissions.create({ fileId: file.id, supportsAllDrives: true, requestBody: { type: 'anyone', role: 'reader' }, fields: 'id' });
+              shared++;
+            }
+            pageToken = page.data.nextPageToken;
+          } while (pageToken);
+        }
+      }
+      await d.ref.set({ publicDashboard: true, publicDashboardEnabledAt: new Date(), publicDashboardEnabledBy: req.adminId }, { merge: true });
+      res.json({ ok: true, shared, alreadyPublic, publicDashboard: true });
+    } catch (e) {
+      console.error('Enabling public dashboard failed:', e.message);
+      res.status(400).json({ ok: false, error: 'Could not make all presentations viewable. Check the owner Drive access and Google Drive sharing policy, then try again.' });
     }
   });
   app.post('/api/owner/admins/:adminId/access', requireSameOrigin, requireOwner, async (req, res) => {
@@ -412,6 +453,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const filename = `${roll}_${subject.replace(/[^a-zA-Z0-9-]/g, '_')}_${category}_${cleanName(req.file.originalname)}`;
       const mimeType = /\.ppt$/i.test(filename) ? 'application/vnd.ms-powerpoint' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
       const result = await drive.files.create({ requestBody: { name: filename, parents: [folderId], mimeType }, media: { mimeType, body: fs.createReadStream(temp) }, fields: 'id,name,webViewLink' });
+      if (c.publicDashboard === true) {
+        try { await drive.permissions.create({ fileId: result.data.id, supportsAllDrives: true, requestBody: { type: 'anyone', role: 'reader' }, fields: 'id' }); }
+        catch (e) { console.error('Public presentation sharing failed:', e.message); }
+      }
       await submissionRef.set({ status: 'complete', driveFileId: result.data.id, updatedAt: new Date() }, { merge: true });
       res.json({ ok: true, message: 'PPT uploaded successfully.', fileName: result.data.name, driveUrl: result.data.webViewLink || `https://drive.google.com/file/d/${result.data.id}/view` });
     } catch (e) {
@@ -426,10 +471,11 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     }
     finally { if (temp) fs.promises.unlink(temp).catch(() => {}); }
   });
-  app.get('/api/ppts', requireAdmin, async (req, res) => {
+  app.get('/api/ppts', ready, async (req, res) => {
     try {
       const d = await classDoc(String(req.query.class || ''));
-      if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      if (!await canViewClass(req, d.data())) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
       const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || ''), drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
       const files = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'files(id,name,createdTime,webViewLink)', pageSize: 1000, orderBy: 'name' });
       const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => ({ roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, createdAt: f.createdTime }));
@@ -440,10 +486,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const slug = String(req.query.class || ''); const d = await classDoc(slug);
     if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
     const c = d.data();
-    const signedInAdmin = await currentAdmin(req);
-    const signedInAccount = signedInAdmin ? await db.collection('admins').doc(signedInAdmin).get() : null;
-    const signedInEmail = String(signedInAccount?.data()?.email || '').toLowerCase();
-    if (signedInAdmin !== c.adminId && (!ownerEmail || signedInEmail !== ownerEmail)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
+    if (!await canViewClass(req, c)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
     res.json({ ok: true, structure: c.structure, className: c.name, totalStudents: c.rolls.length });
   });
   app.get('/api/health', ready, async (req, res) => { res.json({ ok: true, multiAdmin: true, storage: 'firestore' }); });
