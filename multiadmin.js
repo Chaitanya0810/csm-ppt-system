@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const multer = require('multer');
 const { google } = require('googleapis');
-const firebaseAdmin = require('firebase-admin');
+const { cert, initializeApp } = require('firebase-admin/app');
+const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
@@ -34,8 +35,8 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     if (!appCredentials?.client_id || !appCredentials?.client_secret) throw new Error('Google OAuth credentials are invalid.');
     if (!/^[0-9a-f]{64}$/i.test(process.env.MULTI_ADMIN_ENCRYPTION_KEY || '')) throw new Error('MULTI_ADMIN_ENCRYPTION_KEY must be a 64-character hex key.');
     oauthConfig = { ...appCredentials, clientId: appCredentials.client_id, clientSecret: appCredentials.client_secret };
-    firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(serviceAccount), projectId: serviceAccount.project_id });
-    db = firebaseAdmin.firestore();
+    const firebaseApp = initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
+    db = getFirestore(firebaseApp);
   } catch (e) { configError = e.message; }
 
   const ready = (req, res, next) => {
@@ -190,7 +191,7 @@ function createMultiAdmin(app, { port, loadTestMode }) {
     if (action === 'enable') changes.disabled = false;
     if (action === 'revoke') Object.assign(changes, { approved: false, disabled: true });
     const removeAccess = action === 'disable' || action === 'revoke';
-    if (removeAccess) changes.refreshTokenEncrypted = firebaseAdmin.firestore.FieldValue.delete();
+    if (removeAccess) changes.refreshTokenEncrypted = FieldValue.delete();
     await ref.set(changes, { merge: true });
     if (removeAccess) {
       const sessions = await db.collection('adminSessions').where('adminId', '==', targetId).get();
