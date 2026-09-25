@@ -1,5 +1,4 @@
 const express = require("express");
-const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
 const { authenticate } = require("@google-cloud/local-auth");
@@ -156,7 +155,20 @@ const ROLLS = [
    MIDDLEWARE
 ========================================================= */
 
-app.use(cors());
+app.set("trust proxy", 1);
+
+// All application pages and APIs are same-origin; do not expose them through
+// wildcard CORS. These headers provide browser-side defense in depth.
+app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+    if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
+    if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    next();
+});
 
 app.use(
     express.json({
@@ -176,10 +188,6 @@ app.use(
     )
 );
 
-// Render sits behind a TLS proxy. Trust its forwarded protocol so OAuth uses
-// the public https callback URL and cookies are marked Secure.
-app.set("trust proxy", 1);
-
 // Register tenant-aware routes before the legacy single-admin API routes.
 createMultiAdmin(app, { port: PORT, loadTestMode: LOAD_TEST_MODE, legacyConfig: { rootFolderId: ROOT_FOLDER_ID, structure: STRUCTURE, rolls: ROLLS, slug: "0ByADJgBHSrnWtxN" } });
 
@@ -196,7 +204,12 @@ const upload = multer({
     ),
 
     limits: {
-        fileSize: 100 * 1024 * 1024
+        fileSize: 100 * 1024 * 1024,
+        files: 1,
+        fields: 4,
+        parts: 5,
+        fieldNameSize: 100,
+        fieldSize: 4096
     },
 
     fileFilter: function (
@@ -521,11 +534,7 @@ app.get(
 
                 ok: true,
 
-                message:
-                    "Google Drive connection is working.",
-
-                folder:
-                    response.data
+                message: "Google Drive connection is working."
 
             });
 
@@ -541,7 +550,7 @@ app.get(
                 ok: false,
 
                 error:
-                    error.message
+                    "Google Drive health check failed."
 
             });
 
@@ -719,6 +728,13 @@ async function checkDuplicate(
 
 app.post(
     "/api/upload",
+
+    function (req, res, next) {
+        if (process.env.MULTI_ADMIN_ENABLED === "false") {
+            return res.status(503).json({ ok: false, error: "Unauthenticated legacy uploads are disabled." });
+        }
+        next();
+    },
 
     function (req, res, next) {
         if (LOAD_TEST_MODE &&
@@ -1081,8 +1097,7 @@ app.post(
                 ok: false,
 
                 error:
-                    error.message ||
-                    "Upload failed."
+                    "Upload failed. Please try again or contact the admin."
 
             });
 
@@ -1099,6 +1114,13 @@ app.post(
 
 app.get(
     "/api/ppts",
+
+    function (req, res, next) {
+        if (process.env.MULTI_ADMIN_ENABLED === "false") {
+            return res.status(503).json({ ok: false, error: "Unauthenticated legacy dashboard access is disabled." });
+        }
+        next();
+    },
 
     async function (req, res) {
 
@@ -1339,6 +1361,10 @@ app.get(
 
     function (req, res) {
 
+        if (process.env.MULTI_ADMIN_ENABLED === "false") {
+            return res.status(503).json({ ok: false, error: "Legacy configuration access is disabled." });
+        }
+
         res.json({
 
             ok: true,
@@ -1506,8 +1532,7 @@ app.use(
             ok: false,
 
             error:
-                error.message ||
-                "Server error."
+                "Unexpected server error. Please try again later."
 
         });
 

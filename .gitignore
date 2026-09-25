@@ -1,5 +1,14 @@
 credentials.json
 token.json
 service-account.json
+client_secret*.json
+*firebase-adminsdk*.json
+*service-account*.json
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+firebase-debug.log
 node_modules/
 uploads/

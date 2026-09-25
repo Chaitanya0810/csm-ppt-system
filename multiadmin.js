@@ -18,6 +18,14 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   let oauthConfig;
   let configError;
   const ownerEmail = String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+  const configuredAppBase = String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+  let lastRateLimitSweep = 0;
+  const appBase = (req) => {
+    if (configuredAppBase) return configuredAppBase;
+    const host = String(req.get('host') || '').toLowerCase();
+    if (/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(String(req.socket?.remoteAddress || '')) && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return `${req.protocol}://${host}`;
+    return 'https://csm-ppt-system.onrender.com';
+  };
   const smtpUser = String(process.env.SMTP_USER || '').trim();
   const smtpPassword = String(process.env.SMTP_APP_PASSWORD || '').replace(/\s/g, '');
   const smtpPort = Number(process.env.SMTP_PORT || 465);
@@ -29,7 +37,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   }) : null;
   const upload = multer({
     dest: path.join(__dirname, 'uploads'),
-    limits: { fileSize: 100 * 1024 * 1024 },
+    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldNameSize: 100, fieldSize: 4096 },
     fileFilter(req, file, cb) {
       if (!/\.(ppt|pptx)$/i.test(file.originalname)) return cb(new Error('Only PPT and PPTX files are allowed.'));
       cb(null, true);
@@ -55,14 +63,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     next();
   };
   const oauthClient = (redirectUri) => new google.auth.OAuth2(oauthConfig.clientId, oauthConfig.clientSecret, redirectUri);
-  const redirectUri = (req) => `${req.protocol}://${req.get('host')}/auth/google/callback`;
   async function notifyOwnerOfAccessRequest(req, account) {
     if (!ownerEmail) return false;
     if (!mailer) {
       console.warn('Admin access request is pending; email sender is not configured.');
       return false;
     }
-    const adminPage = `${req.protocol}://${req.get('host')}/admin.html`;
+    const adminPage = `${appBase(req)}/admin.html`;
     await mailer.sendMail({
       from: process.env.SMTP_FROM || smtpUser,
       to: ownerEmail,
@@ -103,16 +110,23 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const account = await db.collection('admins').doc(req.adminId).get();
       req.adminEmail = String(account.data()?.email || '').toLowerCase();
       req.isOwner = Boolean(ownerEmail && req.adminEmail === ownerEmail);
-      if (!req.isOwner && account.data()?.approved === false) return res.status(403).json({ ok: false, error: 'Your admin access is waiting for approval from the app owner.' });
+      if (!req.isOwner && account.data()?.approved !== true) return res.status(403).json({ ok: false, error: 'Your admin access is waiting for approval from the app owner.' });
       next();
     }
-    catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    catch (e) { console.error('Admin authorization check failed:', e.message); res.status(500).json({ ok: false, error: 'Unable to verify admin access right now.' }); }
   });
   const requireOwner = (req, res, next) => requireAdmin(req, res, () => {
     if (!ownerEmail) return res.status(503).json({ ok: false, error: 'The app owner account is not configured.' });
     if (!req.isOwner) return res.status(403).json({ ok: false, error: 'Only the app owner can manage all admins.' });
     next();
   });
+  const requireSameOrigin = (req, res, next) => {
+    let expectedOrigin;
+    try { expectedOrigin = new URL(appBase(req)).origin; }
+    catch { return res.status(503).json({ ok: false, error: 'The application URL is not configured correctly.' }); }
+    if (req.get('origin') !== expectedOrigin) return res.status(403).json({ ok: false, error: 'Request origin was not accepted.' });
+    next();
+  };
   async function classDoc(slug) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
@@ -139,24 +153,71 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const catId = await locateFolder(drive, c.rootFolderId, category, true);
     return locateFolder(drive, catId, subject, true);
   }
+  function oauthBindingHash(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
+  function timingSafeStringEqual(a, b) {
+    const aa = Buffer.from(String(a || ''), 'hex'), bb = Buffer.from(String(b || ''), 'hex');
+    return aa.length === bb.length && aa.length > 0 && crypto.timingSafeEqual(aa, bb);
+  }
+  async function rateLimitUpload(req) {
+    const now = Date.now(), windowMs = 10 * 60 * 1000, windowId = Math.floor(now / windowMs);
+    const ipHash = crypto.createHash('sha256').update(String(req.ip || 'unknown')).digest('hex');
+    const ref = db.collection('uploadRateLimits').doc(ipHash);
+    const allowed = await db.runTransaction(async tx => {
+      const snap = await tx.get(ref), old = snap.data() || {};
+      const count = old.windowId === windowId ? Number(old.count || 0) + 1 : 1;
+      if (count > 150) return false;
+      tx.set(ref, { windowId, count, updatedAt: new Date(now) });
+      return true;
+    });
+    if (now - lastRateLimitSweep > 30 * 60 * 1000) {
+      lastRateLimitSweep = now;
+      const stale = await db.collection('uploadRateLimits').where('updatedAt', '<', new Date(now - 2 * 60 * 60 * 1000)).limit(400).get();
+      if (!stale.empty) {
+        const batch = db.batch();
+        for (const doc of stale.docs) batch.delete(doc.ref);
+        await batch.commit();
+      }
+    }
+    return allowed;
+  }
+  async function fileSignatureIsValid(filePath, originalName) {
+    const handle = await fs.promises.open(filePath, 'r');
+    try {
+      const head = Buffer.alloc(8);
+      const { bytesRead } = await handle.read(head, 0, head.length, 0);
+      if (/\.ppt$/i.test(originalName)) return bytesRead === 8 && head.equals(Buffer.from('D0CF11E0A1B11AE1', 'hex'));
+      return bytesRead >= 4 && head[0] === 0x50 && head[1] === 0x4b && [0x03, 0x05, 0x07].includes(head[2]) && [0x04, 0x06, 0x08].includes(head[3]);
+    } finally { await handle.close(); }
+  }
+  function uploadErrorMessage(error) {
+    const status = Number(error?.code || error?.response?.status || 0);
+    if (status === 403) return 'Google Drive denied access. Ask the connected admin to check edit access to the class folder.';
+    if (status === 404) return 'The class Drive folder could not be found or accessed.';
+    if (status === 429) return 'Google Drive is receiving too many requests. Please wait and try again.';
+    if (error?.statusCode === 400) return error.message;
+    return 'Upload failed. Please try again, or contact the class admin if it continues.';
+  }
 
   // Keep the isolated load-test deployment on its existing no-Drive endpoints.
   if (loadTestMode) return;
 
   app.get('/auth/google', ready, async (req, res) => {
     const state = crypto.randomBytes(24).toString('base64url');
-    await db.collection('oauthStates').doc(state).set({ expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
-    res.redirect(oauthClient(redirectUri(req)).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: ['openid', 'email', ...SCOPES], state }));
+    const browserBinding = crypto.randomBytes(32).toString('base64url');
+    await db.collection('oauthStates').doc(state).set({ expiresAt: new Date(Date.now() + 10 * 60 * 1000), browserBindingHash: oauthBindingHash(browserBinding) });
+    res.setHeader('Set-Cookie', `csm_oauth_binding=${browserBinding}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/auth/google/callback; Max-Age=600`);
+    res.redirect(oauthClient(`${appBase(req)}/auth/google/callback`).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: ['openid', 'email', ...SCOPES], state }));
   });
   app.get('/auth/google/callback', ready, async (req, res) => {
     try {
       const stateRef = db.collection('oauthStates').doc(String(req.query.state || ''));
       const state = await stateRef.get();
-      if (!state.exists || state.data().expiresAt.toMillis() < Date.now()) return res.status(400).send('Sign-in expired. Return to the admin page and try again.');
+      const browserBinding = parseCookies(req.headers.cookie).csm_oauth_binding || '';
+      if (!state.exists || state.data().expiresAt.toMillis() < Date.now() || !timingSafeStringEqual(state.data().browserBindingHash, oauthBindingHash(browserBinding))) return res.status(400).send('Sign-in expired. Return to the admin page and try again.');
       await stateRef.delete();
-      const { tokens } = await oauthClient(redirectUri(req)).getToken(String(req.query.code || ''));
+      const { tokens } = await oauthClient(`${appBase(req)}/auth/google/callback`).getToken(String(req.query.code || ''));
       if (!tokens.refresh_token) throw new Error('Google did not return a refresh token. Revoke this app in your Google account and retry sign-in.');
-      const auth = oauthClient(redirectUri(req)); auth.setCredentials(tokens);
+      const auth = oauthClient(`${appBase(req)}/auth/google/callback`); auth.setCredentials(tokens);
       const userInfo = await google.oauth2({ version: 'v2', auth }).userinfo.get();
       if (userInfo.data.verified_email !== true || !userInfo.data.email) throw new Error('Google did not verify this email address.');
       const adminId = userInfo.data.id;
@@ -169,24 +230,27 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       await adminRef.set(account, { merge: true });
       const sessionId = crypto.randomBytes(32).toString('base64url');
       await db.collection('adminSessions').doc(sessionId).set({ adminId, expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) });
-      const isPending = !isOwner && (existingAdmin.exists ? existingAdmin.data().approved === false : true);
+      const isPending = !isOwner && (!existingAdmin.exists || existingAdmin.data().approved !== true);
       if (isPending && !existingAdmin.data()?.requestNotificationSentAt) {
         try {
           if (await notifyOwnerOfAccessRequest(req, account)) await adminRef.set({ requestNotificationSentAt: new Date() }, { merge: true });
         } catch (e) { console.error('Admin request email failed:', e.message); }
       }
-      res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${encodeURIComponent(`${sessionId}.${sign(sessionId)}`)}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=1209600`);
+      res.setHeader('Set-Cookie', [
+        `csm_oauth_binding=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/auth/google/callback; Max-Age=0`,
+        `${TOKEN_COOKIE}=${encodeURIComponent(`${sessionId}.${sign(sessionId)}`)}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=1209600`
+      ]);
       res.redirect('/admin.html');
     } catch (e) { console.error('OAuth callback failed:', e.message); res.status(500).send('Google sign-in failed. Check Render logs and OAuth redirect URI settings.'); }
   });
-  app.post('/api/logout', ready, async (req, res) => {
+  app.post('/api/logout', ready, requireSameOrigin, async (req, res) => {
     const cookie = parseCookies(req.headers.cookie)[TOKEN_COOKIE] || '', id = cookie.split('.')[0];
     if (id) await db.collection('adminSessions').doc(id).delete().catch(() => {});
     res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
   });
   app.get('/api/admin/me', ready, async (req, res) => {
-    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, approved: owner || d.approved !== false }); }
-    catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, approved: owner || d.approved === true }); }
+    catch (e) { console.error('Admin session lookup failed:', e.message); res.status(500).json({ ok: false, error: 'Unable to check sign-in status right now.' }); }
   });
   app.get('/api/admin/classes', requireAdmin, async (req, res) => {
     const q = req.isOwner ? await db.collection('classes').get() : await db.collection('classes').where('adminId', '==', req.adminId).get();
@@ -205,10 +269,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     for (const doc of classes.docs) counts.set(doc.data().adminId, (counts.get(doc.data().adminId) || 0) + 1);
     res.json({ ok: true, admins: admins.docs.map(doc => {
       const a = doc.data();
-      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, approved: a.approved !== false || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
+      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, approved: a.approved === true || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
     }) });
   });
-  app.post('/api/owner/import-legacy', requireOwner, async (req, res) => {
+  app.post('/api/owner/import-legacy', requireSameOrigin, requireOwner, async (req, res) => {
     try {
       if (!legacyConfig?.rootFolderId || !legacyConfig?.structure || !Array.isArray(legacyConfig?.rolls)) {
         return res.status(503).json({ ok: false, error: 'The previous class setup is not available in this deployment.' });
@@ -225,7 +289,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
             await importedClass.ref.set({ slug: legacyConfig.slug }, { merge: true });
             c.slug = legacyConfig.slug;
           }
-          return res.json({ ok: true, alreadyImported: true, name: c.name, studentUrl: `${req.protocol}://${req.get('host')}/?class=${c.slug}`, rolls: c.rolls.length });
+          return res.json({ ok: true, alreadyImported: true, name: c.name, studentUrl: `${appBase(req)}/?class=${c.slug}`, rolls: c.rolls.length });
         }
       }
       // This is the exact root folder from the previous app configuration. Verify the
@@ -243,13 +307,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       batch.set(classRef, { adminId: req.adminId, slug, name: 'Previous class setup', rootFolderId: root.data.id, structure: cleanStructure, rolls: cleanRolls, legacyImport: true, createdAt: new Date() });
       batch.set(marker, { classId: classRef.id, importedAt: new Date(), rootFolderId: root.data.id });
       await batch.commit();
-      res.json({ ok: true, name: 'Previous class setup', studentUrl: `${req.protocol}://${req.get('host')}/?class=${slug}`, rolls: cleanRolls.length });
+      res.json({ ok: true, name: 'Previous class setup', studentUrl: `${appBase(req)}/?class=${slug}`, rolls: cleanRolls.length });
     } catch (e) {
       console.error('Previous setup import failed:', e.message);
-      res.status(400).json({ ok: false, error: e.message || 'Could not import the previous class setup.' });
+      res.status(400).json({ ok: false, error: uploadErrorMessage(e) });
     }
   });
-  app.post('/api/owner/admins/:adminId/access', requireOwner, async (req, res) => {
+  app.post('/api/owner/admins/:adminId/access', requireSameOrigin, requireOwner, async (req, res) => {
     const targetId = String(req.params.adminId || '');
     const action = req.body?.action;
     if (!targetId || !['approve', 'disable', 'enable', 'revoke'].includes(action)) return res.status(400).json({ ok: false, error: 'Choose a valid admin access action.' });
@@ -273,9 +337,9 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         await batch.commit();
       }
     }
-    res.json({ ok: true, approved: action === 'approve' || (action !== 'revoke' && target.data().approved !== false), disabled: action === 'disable' || action === 'revoke' || (action === 'enable' ? false : target.data().disabled === true) });
+    res.json({ ok: true, approved: action === 'approve' || (action !== 'revoke' && target.data().approved === true), disabled: action === 'disable' || action === 'revoke' || (action === 'enable' ? false : target.data().disabled === true) });
   });
-  app.post('/api/admin/classes', requireAdmin, async (req, res) => {
+  app.post('/api/admin/classes', requireSameOrigin, requireAdmin, async (req, res) => {
     try {
       const { name, rootFolderId, structure, rolls } = req.body || {};
       if (!String(name || '').trim() || !String(rootFolderId || '').trim()) return res.status(400).json({ ok: false, error: 'Enter a class name and the Google Drive folder ID.' });
@@ -293,10 +357,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       }
       const slug = crypto.randomBytes(12).toString('base64url');
       await db.collection('classes').doc(crypto.randomUUID()).set({ adminId: req.adminId, slug, name: String(name).trim().slice(0, 100), rootFolderId: root.data.id, structure: safeStructure, rolls: cleanRolls, createdAt: new Date() });
-      res.json({ ok: true, slug, studentUrl: `${req.protocol}://${req.get('host')}/?class=${slug}` });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+      res.json({ ok: true, slug, studentUrl: `${appBase(req)}/?class=${slug}` });
+    } catch (e) {
+      console.error('Class creation failed:', e.message);
+      res.status(400).json({ ok: false, error: 'Could not create class. Check the folder ID, edit access, category/subject settings, and roll numbers.' });
+    }
   });
-  app.delete('/api/admin/classes/:slug', requireAdmin, async (req, res) => {
+  app.delete('/api/admin/classes/:slug', requireSameOrigin, requireAdmin, async (req, res) => {
     const d = await classDoc(req.params.slug);
     if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
     await d.ref.delete(); res.json({ ok: true });
@@ -306,21 +373,57 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const d = await classDoc(req.params.slug); if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
     res.json({ ok: true, ...publicClass(d.data()) });
   });
-  app.post('/api/upload', ready, upload.single('file'), async (req, res) => {
+  app.post('/api/upload', ready, requireSameOrigin, async (req, res, next) => {
+    try {
+      if (!await rateLimitUpload(req)) return res.status(429).json({ ok: false, error: 'Too many upload attempts from this network. Please wait ten minutes and try again.' });
+      next();
+    } catch (e) {
+      console.error('Upload rate limit failed:', e.message);
+      res.status(503).json({ ok: false, error: 'Uploads are temporarily unavailable. Please try again shortly.' });
+    }
+  }, upload.single('file'), async (req, res) => {
     let temp = req.file?.path;
+    let submissionRef;
+    let reservationToken;
     try {
       if (!req.file) return res.status(400).json({ ok: false, error: 'Choose a PPT/PPTX file.' });
+      if (!await fileSignatureIsValid(req.file.path, req.file.originalname)) return res.status(400).json({ ok: false, error: 'The selected file contents do not match a valid PPT/PPTX file.' });
       const d = await classDoc(String(req.body.classSlug || '')); if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
       const c = d.data(), roll = String(req.body.roll || '').trim().toUpperCase(), category = String(req.body.category || ''), subject = String(req.body.subject || '');
       if (!c.rolls.includes(roll)) return res.status(400).json({ ok: false, error: 'This roll number is not in the class roster.' });
+      if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
+      const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
+      submissionRef = db.collection('submissionLocks').doc(lockId);
+      reservationToken = crypto.randomBytes(24).toString('base64url');
+      const reserved = await db.runTransaction(async tx => {
+        const snap = await tx.get(submissionRef), now = Date.now(), old = snap.data() || {};
+        if (snap.exists && (old.status === 'complete' || (old.status === 'uploading' && Number(old.leaseUntilMs || 0) > now))) return false;
+        tx.set(submissionRef, { status: 'uploading', token: reservationToken, leaseUntilMs: now + 30 * 60 * 1000, updatedAt: new Date(now) });
+        return true;
+      });
+      if (!reserved) return res.status(409).json({ ok: false, error: 'A submission for this student, category and subject already exists or is currently uploading.' });
       const drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
       const existing = await drive.files.list({ q: `'${folderId}' in parents and name contains '${escapeQuery(roll)}_' and trashed = false`, fields: 'files(id,name)', pageSize: 100 });
-      if ((existing.data.files || []).some(f => f.name.toUpperCase().startsWith(`${roll}_`))) return res.status(409).json({ ok: false, error: 'This roll number has already submitted for this subject and category.' });
+      const priorFile = (existing.data.files || []).find(f => f.name.toUpperCase().startsWith(`${roll}_`));
+      if (priorFile) {
+        await submissionRef.set({ status: 'complete', driveFileId: priorFile.id, updatedAt: new Date() }, { merge: true });
+        return res.status(409).json({ ok: false, error: 'This roll number has already submitted for this subject and category.' });
+      }
       const filename = `${roll}_${subject.replace(/[^a-zA-Z0-9-]/g, '_')}_${category}_${cleanName(req.file.originalname)}`;
       const mimeType = /\.ppt$/i.test(filename) ? 'application/vnd.ms-powerpoint' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
       const result = await drive.files.create({ requestBody: { name: filename, parents: [folderId], mimeType }, media: { mimeType, body: fs.createReadStream(temp) }, fields: 'id,name,webViewLink' });
+      await submissionRef.set({ status: 'complete', driveFileId: result.data.id, updatedAt: new Date() }, { merge: true });
       res.json({ ok: true, message: 'PPT uploaded successfully.', fileName: result.data.name, driveUrl: result.data.webViewLink || `https://drive.google.com/file/d/${result.data.id}/view` });
-    } catch (e) { console.error('Multi-admin upload:', e.message); res.status(500).json({ ok: false, error: e.message || 'Upload failed.' }); }
+    } catch (e) {
+      console.error('Multi-admin upload:', e.message);
+      if (submissionRef && reservationToken) {
+        await db.runTransaction(async tx => {
+          const snap = await tx.get(submissionRef);
+          if (snap.exists && snap.data().token === reservationToken && snap.data().status === 'uploading') tx.delete(submissionRef);
+        }).catch(() => {});
+      }
+      res.status(e?.statusCode || 500).json({ ok: false, error: uploadErrorMessage(e) });
+    }
     finally { if (temp) fs.promises.unlink(temp).catch(() => {}); }
   });
   app.get('/api/ppts', requireAdmin, async (req, res) => {
@@ -331,7 +434,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const files = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'files(id,name,createdTime,webViewLink)', pageSize: 1000, orderBy: 'name' });
       const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => ({ roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, createdAt: f.createdTime }));
       res.json({ ok: true, subject, category, count: submissions.length, totalStudents: c.rolls.length, submissions });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { console.error('Submission listing failed:', e.message); res.status(500).json({ ok: false, error: 'Could not load submissions. Check Drive access and try again.' }); }
   });
   app.get('/api/config', ready, async (req, res) => {
     const slug = String(req.query.class || ''); const d = await classDoc(slug);
