@@ -120,6 +120,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     if (!req.isOwner) return res.status(403).json({ ok: false, error: 'Only the app owner can manage all admins.' });
     next();
   });
+
   const requireSameOrigin = (req, res, next) => {
     let expectedOrigin;
     try { expectedOrigin = new URL(appBase(req)).origin; }
@@ -131,6 +132,36 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
   }
+  // Clear one stale duplicate-submission lock without changing Drive files.
+  app.post('/api/owner/submission-locks/clear', requireSameOrigin, requireOwner, async (req, res) => {
+    try {
+      const slug = String(req.body.classSlug || '').trim();
+      const roll = String(req.body.roll || '').trim().toUpperCase();
+      const category = String(req.body.category || '').trim();
+      const subject = String(req.body.subject || '').trim();
+      const d = await classDoc(slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
+      const c = d.data();
+      if (!c.rolls?.includes(roll)) return res.status(400).json({ ok: false, error: 'That roll number is not in the class roster.' });
+      if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
+      const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
+      const lockRef = db.collection('submissionLocks').doc(lockId);
+      const result = await db.runTransaction(async tx => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists) return 'missing';
+        const lock = snap.data() || {};
+        if (lock.status === 'uploading' && Number(lock.leaseUntilMs || 0) > Date.now()) return 'uploading';
+        tx.delete(lockRef);
+        return 'cleared';
+      });
+      if (result === 'missing') return res.status(404).json({ ok: false, error: 'No submission lock was found for that student, category and subject.' });
+      if (result === 'uploading') return res.status(409).json({ ok: false, error: 'An upload is still in progress. Wait for it to finish or for its 30-minute lease to expire.' });
+      res.json({ ok: true, message: `Cleared the submission lock for ${roll} · ${subject} · ${category}. No Drive files were changed.` });
+    } catch (e) {
+      console.error('Submission lock cleanup failed:', e.message);
+      res.status(500).json({ ok: false, error: 'Could not clear the submission lock.' });
+    }
+  });
   async function canViewClass(req, c) {
     if (c.publicDashboard === true) return true;
     const id = await currentAdmin(req);
