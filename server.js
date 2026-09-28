@@ -1,3 +1,4 @@
+require('./load-local-env');
 const express = require("express");
 const multer = require("multer");
 const { google } = require("googleapis");
@@ -181,6 +182,8 @@ app.use(
         extended: true
     })
 );
+
+require('./admin-gate')(app);
 
 app.use(
     express.static(

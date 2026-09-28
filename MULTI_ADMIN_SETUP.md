@@ -60,3 +60,11 @@ Admins need to sign in to open a class's submissions dashboard. Deleting a class
 - Render Free has ephemeral service filesystems, so app state and Google tokens are stored in Firestore rather than local files. Render's free Postgres expires after 30 days, so it is not used here. [Render free service limits](https://render.com/docs/free)
 - Firebase's Spark plan includes no-cost Firestore usage limits. Keep an eye on the Firebase usage page if the app grows. [Firebase pricing](https://firebase.google.com/pricing)
 - Uploads still pass through the Render web service in this version. The app supports multiple admins, but it does not remove Render Free's CPU, memory, or bandwidth limits.
+
+### Admin page password
+
+Set `ADMIN_PAGE_PASSWORD` in the server environment to your chosen strong password before deploying. Restart the server after setting or changing it. There is no default production password: admin access stays locked if it is missing.
+
+The Admin links open a password form. The server checks the password and issues a one-hour HttpOnly session cookie. The admin HTML is stored outside the public directory, and admin/owner APIs and Google sign-in also require this session. Existing Google sign-in and owner approval are still required for admin actions. Signing out clears the password session. Failed password attempts are limited to five per IP per 15 minutes per server process.
+
+For local use, set `ADMIN_PAGE_PASSWORD` in the git-ignored `.env` file. Both `node server.js` and `node preview.js` load this file, with existing environment variables taking precedence. The localhost-only preview uses the configured password; live Google/Firebase actions are unavailable in the preview.

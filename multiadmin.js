@@ -11,6 +11,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
+const { reserveSubmission, submissionFileExists } = require('./submission-lock');
 
 function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   if (loadTestMode || process.env.MULTI_ADMIN_ENABLED === 'false') return;
@@ -287,7 +288,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   app.post('/api/logout', ready, requireSameOrigin, async (req, res) => {
     const cookie = parseCookies(req.headers.cookie)[TOKEN_COOKIE] || '', id = cookie.split('.')[0];
     if (id) await db.collection('adminSessions').doc(id).delete().catch(() => {});
-    res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
+    res.append('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
   });
   app.get('/api/admin/me', ready, async (req, res) => {
     try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, approved: owner || d.approved === true }); }
@@ -467,14 +468,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
       submissionRef = db.collection('submissionLocks').doc(lockId);
       reservationToken = crypto.randomBytes(24).toString('base64url');
-      const reserved = await db.runTransaction(async tx => {
-        const snap = await tx.get(submissionRef), now = Date.now(), old = snap.data() || {};
-        if (snap.exists && (old.status === 'complete' || (old.status === 'uploading' && Number(old.leaseUntilMs || 0) > now))) return false;
-        tx.set(submissionRef, { status: 'uploading', token: reservationToken, leaseUntilMs: now + 30 * 60 * 1000, updatedAt: new Date(now) });
-        return true;
-      });
+      const reserved = await reserveSubmission(db, submissionRef, reservationToken);
       if (!reserved) return res.status(409).json({ ok: false, error: 'A submission for this student, category and subject already exists or is currently uploading.' });
       const drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
+      if (await submissionFileExists(drive, reserved.driveFileId)) {
+        await submissionRef.set({ status: 'complete', driveFileId: reserved.driveFileId, updatedAt: new Date() }, { merge: true });
+        return res.status(409).json({ ok: false, error: 'This roll number has already submitted for this subject and category.' });
+      }
       const existing = await drive.files.list({ q: `'${folderId}' in parents and name contains '${escapeQuery(roll)}_' and trashed = false`, fields: 'files(id,name)', pageSize: 100 });
       const priorFile = (existing.data.files || []).find(f => f.name.toUpperCase().startsWith(`${roll}_`));
       if (priorFile) {
@@ -495,7 +495,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (submissionRef && reservationToken) {
         await db.runTransaction(async tx => {
           const snap = await tx.get(submissionRef);
-          if (snap.exists && snap.data().token === reservationToken && snap.data().status === 'uploading') tx.delete(submissionRef);
+          if (snap.exists && snap.data().token === reservationToken && snap.data().status === 'uploading') {
+            if (snap.data().driveFileId) tx.set(submissionRef, { status: 'complete', driveFileId: snap.data().driveFileId, updatedAt: new Date() });
+            else tx.delete(submissionRef);
+          }
         }).catch(() => {});
       }
       res.status(e?.statusCode || 500).json({ ok: false, error: uploadErrorMessage(e) });
