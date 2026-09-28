@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>PPT Submission</title>
-  <link rel="stylesheet" href="/student.css?v=5">
-  <script src="/student.js?v=5" defer></script>
+  <link rel="stylesheet" href="/student.css?v=6">
+  <script src="/student.js?v=6" defer></script>
 </head>
 <body>
   <main class="card">
@@ -23,6 +23,11 @@
         <select id="category" required><option value="">Select category</option></select>
         <label for="subject"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15"/></svg>Subject</label>
         <select id="subject" required disabled><option value="">Select subject</option></select>
+        <section id="projectTeam" class="team-section" hidden aria-label="Project team">
+          <label for="teamSize">Team size (including you)</label>
+          <select id="teamSize" disabled><option value="">Select team size</option><option value="3">3 members</option><option value="4">4 members</option></select>
+          <div id="teammates"></div>
+        </section>
         <label for="file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 13h8m-8 4h5"/></svg>PPT file</label>
         <input id="file" type="file" accept=".ppt,.pptx" required>
         <button id="submit" type="submit">Upload PPT</button>

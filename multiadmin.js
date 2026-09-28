@@ -12,6 +12,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
 const { reserveSubmission, submissionFileExists } = require('./submission-lock');
+const { parseProjectTeam } = require('./project-team');
 
 function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   if (loadTestMode || process.env.MULTI_ADMIN_ENABLED === 'false') return;
@@ -38,7 +39,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   }) : null;
   const upload = multer({
     dest: path.join(__dirname, 'uploads'),
-    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldNameSize: 100, fieldSize: 4096 },
+    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 5, parts: 6, fieldNameSize: 100, fieldSize: 4096 },
     fileFilter(req, file, cb) {
       if (!/\.(ppt|pptx)$/i.test(file.originalname)) return cb(new Error('Only PPT and PPTX files are allowed.'));
       cb(null, true);
@@ -465,6 +466,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const c = d.data(), roll = String(req.body.roll || '').trim().toUpperCase(), category = String(req.body.category || ''), subject = String(req.body.subject || '');
       if (!c.rolls.includes(roll)) return res.status(400).json({ ok: false, error: 'This roll number is not in the class roster.' });
       if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
+      const projectTeam = parseProjectTeam(category, req.body.projectTeam, roll, c.rolls);
       const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
       submissionRef = db.collection('submissionLocks').doc(lockId);
       reservationToken = crypto.randomBytes(24).toString('base64url');
@@ -481,9 +483,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         await submissionRef.set({ status: 'complete', driveFileId: priorFile.id, updatedAt: new Date() }, { merge: true });
         return res.status(409).json({ ok: false, error: 'This roll number has already submitted for this subject and category.' });
       }
-      const filename = `${roll}_${subject.replace(/[^a-zA-Z0-9-]/g, '_')}_${category}_${cleanName(req.file.originalname)}`;
+      const rollPrefix = projectTeam ? projectTeam.members.join('_') : roll;
+      const filename = `${rollPrefix}_${subject.replace(/[^a-zA-Z0-9-]/g, '_')}_${category}_${cleanName(req.file.originalname)}`;
       const mimeType = /\.ppt$/i.test(filename) ? 'application/vnd.ms-powerpoint' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-      const result = await drive.files.create({ requestBody: { name: filename, parents: [folderId], mimeType }, media: { mimeType, body: fs.createReadStream(temp) }, fields: 'id,name,webViewLink' });
+      const result = await drive.files.create({ requestBody: { name: filename, parents: [folderId], mimeType, ...(projectTeam ? { description: `Project team (${projectTeam.size} members): ${projectTeam.members.join(', ')}` } : {}) }, media: { mimeType, body: fs.createReadStream(temp) }, fields: 'id,name,webViewLink' });
       if (c.publicDashboard === true) {
         try { await drive.permissions.create({ fileId: result.data.id, supportsAllDrives: true, requestBody: { type: 'anyone', role: 'reader' }, fields: 'id' }); }
         catch (e) { console.error('Public presentation sharing failed:', e.message); }
