@@ -7,13 +7,19 @@ const content = document.getElementById('content');
 const classSlug = new URLSearchParams(location.search).get('class') || '0ByADJgBHSrnWtxN';
 document.getElementById('studentLink').href = `/student.html?class=${encodeURIComponent(classSlug)}`;
 document.getElementById('adminLink').href = `/admin-login.html?class=${encodeURIComponent(classSlug)}`;
-let structure = {}, configured = false, requestId = 0, activeRequest;
+let structure = {}, configured = false, requestId = 0, activeRequest, serviceLocked = false;
 function showState(text, className = 'empty') {
   const state = document.createElement('div');
   state.className = className;
   state.textContent = text;
   content.replaceChildren(state);
 }
+window.addEventListener('service-locked', event => {
+  serviceLocked = true; cancelRequest();
+  categorySelect.disabled = true; subjectSelect.disabled = true; refreshButton.disabled = true;
+  showState(event.detail || 'Access temporarily unavailable. Please contact the app owner.', 'error');
+  info.textContent = 'Access unavailable';
+});
 function busy(value) {
   content.setAttribute('aria-busy', String(value));
   refreshButton.disabled = value || (configured && (!categorySelect.value || !subjectSelect.value));
@@ -23,6 +29,7 @@ function busy(value) {
 async function getData(url, signal) {
   const response = await fetch(url, { cache: 'no-store', signal });
   const data = await response.json();
+  if (data.code === 'SERVICE_LOCKED') window.dispatchEvent(new CustomEvent('service-locked', { detail: data.error }));
   if (!response.ok || !data.ok) throw new Error(data.error || `Request failed (${response.status}).`);
   return data;
 }
@@ -30,6 +37,7 @@ async function loadConfig() {
   busy(true);
   try {
     const data = await getData(`/api/config?class=${encodeURIComponent(classSlug)}`);
+    if (serviceLocked) return;
     structure = data.structure || {};
     categorySelect.replaceChildren(new Option('Select category', ''));
     Object.keys(structure).forEach(value => categorySelect.add(new Option(value, value)));
@@ -42,7 +50,7 @@ async function loadConfig() {
   } catch (error) {
     showState(error.message, 'error');
     info.textContent = 'Could not load the dashboard. Use Refresh to retry.';
-  } finally { busy(false); }
+  } finally { if (!serviceLocked) busy(false); }
 }
 function cancelRequest() { requestId++; activeRequest?.abort(); }
 categorySelect.addEventListener('change', () => {
@@ -72,6 +80,7 @@ async function loadPPTs() {
   showState('Loading presentations…', 'loading-state');
   try {
     const data = await getData(`/api/ppts?class=${encodeURIComponent(classSlug)}&category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`, activeRequest.signal);
+    if (serviceLocked) return;
     if (currentId !== requestId) return;
     info.textContent = `${subject} · ${category} · ${data.count}/${data.totalStudents} submitted`;
     if (!data.submissions?.length) { showState('No PPTs submitted yet.'); return; }
@@ -99,6 +108,6 @@ async function loadPPTs() {
     if (currentId !== requestId || error.name === 'AbortError') return;
     showState(error.message, 'error');
     info.textContent = 'Could not load presentations. Use Refresh to retry.';
-  } finally { if (currentId === requestId) busy(false); }
+  } finally { if (currentId === requestId && !serviceLocked) busy(false); }
 }
 loadConfig();

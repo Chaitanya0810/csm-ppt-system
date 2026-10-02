@@ -46,23 +46,31 @@ function renderTeammates() {
 }
 teamSize.onchange = renderTeammates;
 roll.addEventListener('change', refreshTeammates);
-let cfg, uploading = false;
-function message(text, kind = '') { statusBox.className = kind; statusBox.textContent = text; }
+let cfg, uploading = false, serviceLocked = false;
+function message(text, kind = '') { statusBox.className = serviceLocked ? 'error' : kind; statusBox.textContent = serviceLocked ? 'Access temporarily unavailable. Please contact the app owner.' : text; }
+window.addEventListener('service-locked', () => {
+  serviceLocked = true; fields.disabled = true; button.disabled = true;
+  document.getElementById('className').textContent = 'Access unavailable';
+  message('Access temporarily unavailable. Please contact the app owner.', 'error');
+});
+function checkServiceAccess(data) { if (data.code === 'SERVICE_LOCKED') window.dispatchEvent(new CustomEvent('service-locked')); }
 function updateFile() {
   message('');
 }
 async function init() {
   if (!slug) { document.getElementById('className').textContent = 'Class link needed'; message('This link is missing its class code. Ask your admin for the correct link.', 'error'); return; }
   try {
-    const response = await fetch(`/api/class/${encodeURIComponent(slug)}`);
+    const response = await fetch(`/api/class/${encodeURIComponent(slug)}`, { cache: 'no-store' });
     const data = await response.json();
+    checkServiceAccess(data);
     if (!response.ok) throw new Error(data.error || 'Could not load this class. Please try again.');
+    if (serviceLocked) return;
     cfg = data;
     document.getElementById('className').textContent = data.name;
     data.rolls.forEach(value => roll.add(new Option(value, value)));
     Object.keys(data.structure).forEach(value => cat.add(new Option(value, value)));
     document.getElementById('preview').hidden = !data.preview;
-    fields.disabled = false;
+    fields.disabled = serviceLocked;
   } catch (error) { document.getElementById('className').textContent = 'Class unavailable'; message(error.message, 'error'); }
 }
 cat.onchange = () => {
@@ -76,7 +84,7 @@ cat.onchange = () => {
 fileInput.onchange = updateFile;
 document.getElementById('submissionForm').onsubmit = event => {
   event.preventDefault();
-  if (uploading || !cfg) return;
+  if (uploading || serviceLocked || !cfg) return;
   const file = fileInput.files[0];
   if (!roll.value || !cat.value || !sub.value || !file) return message('Select your roll number, category, subject and a file.', 'error');
   if (!/\.(ppt|pptx)$/i.test(file.name)) return message('Only PPT and PPTX files are allowed.', 'error');
@@ -96,8 +104,8 @@ document.getElementById('submissionForm').onsubmit = event => {
   const xhr = new XMLHttpRequest();
   uploading = true; fields.disabled = true; button.textContent = 'Uploading…'; progress.hidden = false; progress.value = 0;
   message('Uploading your presentation. Please keep this page open.', 'info');
-  const finish = () => { uploading = false; fields.disabled = false; button.textContent = 'Upload PPT'; progress.hidden = true; };
-  xhr.open('POST', '/api/upload');
+  const finish = () => { uploading = false; fields.disabled = serviceLocked; button.textContent = 'Upload PPT'; progress.hidden = true; };
+  xhr.open('POST', `/api/upload?class=${encodeURIComponent(slug)}`);
   xhr.timeout = 10 * 60 * 1000;
   xhr.upload.onprogress = event => {
     if (event.lengthComputable) {
@@ -108,6 +116,7 @@ document.getElementById('submissionForm').onsubmit = event => {
   xhr.onload = () => {
     finish(); let data = {};
     try { data = JSON.parse(xhr.responseText); } catch {}
+    checkServiceAccess(data);
     if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
       fileInput.value = ''; updateFile();
       message('PPT uploaded successfully.', 'success');

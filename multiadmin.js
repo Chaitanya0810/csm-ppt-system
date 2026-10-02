@@ -13,6 +13,7 @@ const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
 const { reserveSubmission, submissionFileExists } = require('./submission-lock');
 const { parseProjectTeam } = require('./project-team');
+const { sendLocked, mountServiceAccess } = require('./service-access');
 
 function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   if (loadTestMode || process.env.MULTI_ADMIN_ENABLED === 'false') return;
@@ -112,6 +113,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const account = await db.collection('admins').doc(req.adminId).get();
       req.adminEmail = String(account.data()?.email || '').toLowerCase();
       req.isOwner = Boolean(ownerEmail && req.adminEmail === ownerEmail);
+      if (!req.isOwner && account.data()?.serviceLocked === true) return sendLocked(res);
       if (!req.isOwner && account.data()?.approved !== true) return res.status(403).json({ ok: false, error: 'Your admin access is waiting for approval from the app owner.' });
       next();
     }
@@ -134,6 +136,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
   }
+  const serviceAccess = mountServiceAccess(app, { ready, requireSameOrigin, requireOwner, db, classDoc, ownerEmail });
   // Clear one stale duplicate-submission lock without changing Drive files.
   app.post('/api/owner/submission-locks/clear', requireSameOrigin, requireOwner, async (req, res) => {
     try {
@@ -292,7 +295,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     res.append('Set-Cookie', `${TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/; Max-Age=0`); res.json({ ok: true });
   });
   app.get('/api/admin/me', ready, async (req, res) => {
-    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, approved: owner || d.approved === true }); }
+    try { const id = await currentAdmin(req); if (!id) return res.json({ ok: true, signedIn: false }); const d = (await db.collection('admins').doc(id).get()).data(); const owner = Boolean(ownerEmail && String(d.email || '').toLowerCase() === ownerEmail); res.json({ ok: true, signedIn: true, email: d.email, name: d.name, owner, serviceLocked: !owner && d.serviceLocked === true, approved: owner || d.approved === true }); }
     catch (e) { console.error('Admin session lookup failed:', e.message); res.status(500).json({ ok: false, error: 'Unable to check sign-in status right now.' }); }
   });
   app.get('/api/admin/classes', requireAdmin, async (req, res) => {
@@ -312,7 +315,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     for (const doc of classes.docs) counts.set(doc.data().adminId, (counts.get(doc.data().adminId) || 0) + 1);
     res.json({ ok: true, admins: admins.docs.map(doc => {
       const a = doc.data();
-      return { id: doc.id, email: a.email || '', name: a.name || '', disabled: a.disabled === true, approved: a.approved === true || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
+      return { id: doc.id, email: a.email || '', name: a.name || '', serviceLocked: a.serviceLocked === true, owner: String(a.email || '').toLowerCase() === ownerEmail, disabled: a.disabled === true, approved: a.approved === true || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
     }) });
   });
   app.post('/api/owner/import-legacy', requireSameOrigin, requireOwner, async (req, res) => {
@@ -463,6 +466,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!req.file) return res.status(400).json({ ok: false, error: 'Choose a PPT/PPTX file.' });
       if (!await fileSignatureIsValid(req.file.path, req.file.originalname)) return res.status(400).json({ ok: false, error: 'The selected file contents do not match a valid PPT/PPTX file.' });
       const d = await classDoc(String(req.body.classSlug || '')); if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
+      if (!await serviceAccess.classAllowed(d.data(), res)) return;
       const c = d.data(), roll = String(req.body.roll || '').trim().toUpperCase(), category = String(req.body.category || ''), subject = String(req.body.subject || '');
       if (!c.rolls.includes(roll)) return res.status(400).json({ ok: false, error: 'This roll number is not in the class roster.' });
       if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
@@ -486,6 +490,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const rollPrefix = projectTeam ? projectTeam.members.join('_') : roll;
       const filename = `${rollPrefix}_${subject.replace(/[^a-zA-Z0-9-]/g, '_')}_${category}_${cleanName(req.file.originalname)}`;
       const mimeType = /\.ppt$/i.test(filename) ? 'application/vnd.ms-powerpoint' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      if (!await serviceAccess.classAllowed(c, res)) {
+        await db.runTransaction(async tx => {
+          const snap = await tx.get(submissionRef);
+          if (snap.exists && snap.data().token === reservationToken && snap.data().status === 'uploading') tx.delete(submissionRef);
+        });
+        return;
+      }
       const result = await drive.files.create({ requestBody: { name: filename, parents: [folderId], mimeType, ...(projectTeam ? { description: `Project team (${projectTeam.size} members): ${projectTeam.members.join(', ')}` } : {}) }, media: { mimeType, body: fs.createReadStream(temp) }, fields: 'id,name,webViewLink' });
       if (c.publicDashboard === true) {
         try { await drive.permissions.create({ fileId: result.data.id, supportsAllDrives: true, requestBody: { type: 'anyone', role: 'reader' }, fields: 'id' }); }
