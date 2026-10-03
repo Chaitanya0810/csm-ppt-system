@@ -6,7 +6,7 @@ const info = document.getElementById('info');
 const content = document.getElementById('content');
 const classSlug = new URLSearchParams(location.search).get('class') || '0ByADJgBHSrnWtxN';
 document.getElementById('studentLink').href = `/student.html?class=${encodeURIComponent(classSlug)}`;
-document.getElementById('adminLink').href = `/admin-login.html?class=${encodeURIComponent(classSlug)}`;
+document.getElementById('adminLink').href = `/admin.html?class=${encodeURIComponent(classSlug)}`;
 let structure = {}, configured = false, requestId = 0, activeRequest, serviceLocked = false;
 function showState(text, className = 'empty') {
   const state = document.createElement('div');

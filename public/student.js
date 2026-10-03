@@ -1,7 +1,7 @@
 ﻿const params = new URLSearchParams(location.search);
 const slug = params.get('class');
 document.getElementById('submissionsLink').href = `/dashboard.html?class=${encodeURIComponent(slug || '0ByADJgBHSrnWtxN')}`;
-document.getElementById('adminLink').href = `/admin-login.html?class=${encodeURIComponent(slug || '0ByADJgBHSrnWtxN')}`;
+document.getElementById('adminLink').href = `/admin.html?class=${encodeURIComponent(slug || '0ByADJgBHSrnWtxN')}`;
 const roll = document.getElementById('roll');
 const cat = document.getElementById('category');
 const sub = document.getElementById('subject');

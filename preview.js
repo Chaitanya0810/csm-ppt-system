@@ -4,7 +4,8 @@ const express = require('express');
 const path = require('node:path');
 const app = express();
 app.use(express.json({ limit: '4kb' }));
-require('./admin-gate')(app);
+app.get('/admin.html', (_req, res) => res.sendFile(path.join(__dirname, 'private', 'admin.html')));
+app.get('/admin-login.html', (_req, res) => res.redirect(302, '/admin.html'));
 app.get('/api/class/:slug', (_req, res) => res.json({
   ok: true, preview: true, name: 'CSE · Artificial Intelligence & Machine Learning · II Year',
   rolls: ['257R1A66C9', '257R1A66D0', '257R1A66D1', '257R1A66H1'],

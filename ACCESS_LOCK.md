@@ -12,4 +12,4 @@ The lock does not change Google Drive permissions. Direct Drive URLs, external p
 
 This feature applies to the multi-admin application. Legacy single-admin and load-test modes do not provide owner/CR service locks.
 
-Run `node --test service-access.test.js admin-gate.test.js` to verify authorization and route behavior with isolated storage/Drive fixtures.
+Run `node --test service-access.test.js` to verify service-lock authorization and route behavior with isolated storage/Drive fixtures.
