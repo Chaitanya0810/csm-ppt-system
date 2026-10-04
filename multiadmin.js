@@ -190,7 +190,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         return 'cleared';
       });
       if (result === 'missing') return res.status(404).json({ ok: false, error: 'No submission lock was found for that student, category and subject.' });
-      if (result === 'uploading') return res.status(409).json({ ok: false, error: 'An upload is still in progress. Wait for it to finish or for its 30-minute lease to expire.' });
+      if (result === 'uploading') return res.status(409).json({ ok: false, error: 'An upload is still in progress. Wait for it to finish or for its 1-minute lease to expire.' });
       res.json({ ok: true, message: `Cleared the submission lock for ${roll} · ${subject} · ${category}. No Drive files were changed.` });
     } catch (e) {
       console.error('Submission lock cleanup failed:', e.message);
