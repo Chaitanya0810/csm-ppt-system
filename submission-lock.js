@@ -3,7 +3,7 @@ async function reserveSubmission(db, ref, token) {
   return db.runTransaction(async tx => {
     const snap = await tx.get(ref), now = Date.now(), old = snap.data() || {};
     if (snap.exists && old.status === 'uploading' && Number(old.leaseUntilMs || 0) > now) return false;
-    tx.set(ref, { status: 'uploading', token, driveFileId: old.driveFileId || null, leaseUntilMs: now + 30 * 60 * 1000, updatedAt: new Date(now) });
+    tx.set(ref, { status: 'uploading', token, driveFileId: old.driveFileId || null, leaseUntilMs: now + 60 * 1000, updatedAt: new Date(now) });
     return { driveFileId: old.driveFileId };
   });
 }
