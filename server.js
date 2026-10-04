@@ -183,7 +183,11 @@ app.use(
     })
 );
 
-require('./admin-gate')(app);
+app.get('/admin.html', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.join(__dirname, 'private', 'admin.html'));
+});
+app.get('/admin-login.html', (_req, res) => res.redirect(302, '/admin.html'));
 
 app.use(
     express.static(
@@ -1641,4 +1645,3 @@ async function startServer() {
 
 
 startServer();
-
