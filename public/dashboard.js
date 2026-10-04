@@ -137,23 +137,8 @@ async function loadPPTs() {
       const url = driveUrl || item.presentationUrl || '';
       if (/^(?:https?:\/\/|\/(?!\/))/i.test(url)) {
         const link = document.createElement('a'); link.className = 'open'; link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        link.textContent = 'View presentation';
-        const arrow = document.createElement('span'); arrow.textContent = '↗'; arrow.setAttribute('aria-hidden', 'true'); link.append(arrow); card.append(link);
-        const actions = document.createElement('div'); actions.className = 'presentation-actions';
-        const slidesUrl = item.slidesUrl || (fileId ? `https://docs.google.com/presentation/d/${fileId}/edit` : item.presentationUrl);
-        const addAction = (label, href) => {
-          if (!/^(?:https?:\/\/|\/(?!\/))/i.test(href || '')) return;
-          const action = document.createElement('a'); action.textContent = label; action.href = href;
-          action.target = '_blank'; action.rel = 'noopener noreferrer'; actions.append(action);
-        };
-        addAction('Google Slides', slidesUrl);
-        if (item.downloadUrl || fileId) addAction('Download PPT', item.downloadUrl || `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`);
-        if (actions.childElementCount) card.append(actions);
-        if (fileId) {
-          const hint = document.createElement('p'); hint.className = 'presentation-hint';
-          hint.textContent = 'To use an app on your device, download the PPT, then open it with Google Slides, PowerPoint, or another presentation app.';
-          card.append(hint);
-        }
+        link.textContent = 'Open presentation';
+        card.append(link);
       } else {
         const note = document.createElement('p'); note.className = 'unavailable'; note.textContent = data.preview ? 'Sample presentation' : 'Presentation link unavailable.'; card.append(note);
       }
