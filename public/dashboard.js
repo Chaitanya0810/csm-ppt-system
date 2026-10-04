@@ -133,12 +133,17 @@ async function loadPPTs() {
       const filename = document.createElement('div'); filename.className = 'filename'; filename.textContent = item.fileName;
       card.append(top, filename);
       const fileId = typeof item.fileId === 'string' && /^[\w-]+$/.test(item.fileId) ? item.fileId : '';
-      const driveUrl = item.driveUrl || (fileId ? `https://drive.google.com/file/d/${fileId}/view` : '');
-      const url = driveUrl || item.presentationUrl || '';
-      if (/^(?:https?:\/\/|\/(?!\/))/i.test(url)) {
-        const link = document.createElement('a'); link.className = 'open'; link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      const slidesUrl = item.slidesUrl || (fileId ? `https://docs.google.com/presentation/d/${fileId}/edit` : item.presentationUrl || '');
+      const downloadUrl = item.downloadUrl || (fileId ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}` : '');
+      if (/^(?:https?:\/\/|\/(?!\/))/i.test(slidesUrl)) {
+        const link = document.createElement('a'); link.className = 'open'; link.href = slidesUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
         link.textContent = 'Open presentation';
         card.append(link);
+        if (/^(?:https?:\/\/|\/(?!\/))/i.test(downloadUrl)) {
+          const actions = document.createElement('div'); actions.className = 'presentation-actions';
+          const download = document.createElement('a'); download.href = downloadUrl; download.target = '_blank'; download.rel = 'noopener noreferrer';
+          download.textContent = 'Download PPT'; actions.append(download); card.append(actions);
+        }
       } else {
         const note = document.createElement('p'); note.className = 'unavailable'; note.textContent = data.preview ? 'Sample presentation' : 'Presentation link unavailable.'; card.append(note);
       }
