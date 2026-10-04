@@ -692,7 +692,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await canViewClass(req, c)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
       const { fileId, action } = req.params;
       const category = String(req.query.category || ''), subject = String(req.query.subject || '');
-      if (!/^[\w-]+$/.test(fileId) || !['view', 'slides', 'download'].includes(action) || !classStructure(c)?.[category]?.includes(subject)) {
+      if (!/^[\w-]+$/.test(fileId) || !['view', 'preview', 'slides', 'download'].includes(action) || !classStructure(c)?.[category]?.includes(subject)) {
         return res.status(400).json({ ok: false, error: 'Invalid presentation link.' });
       }
       const drive = await getDrive(c.adminId);
@@ -708,6 +708,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await serviceAccess.classAllowed(c, res)) return;
       const urls = {
         view: `https://drive.google.com/file/d/${fileId}/view`,
+        preview: `https://drive.google.com/file/d/${fileId}/preview`,
         slides: `https://docs.google.com/presentation/d/${fileId}/edit`,
         download: `https://drive.google.com/uc?export=download&id=${fileId}`
       };
@@ -729,7 +730,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         const query = `?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
         const isPdf = /\.pdf$/i.test(f.name);
         return { roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, fileType: isPdf ? 'pdf' : 'ppt',
-          driveUrl: `${base}/view${query}`, slidesUrl: isPdf ? '' : `${base}/slides${query}`, downloadUrl: `${base}/download${query}`, createdAt: f.createdTime };
+          driveUrl: `${base}/${isPdf ? 'preview' : 'view'}${query}`, slidesUrl: isPdf ? '' : `${base}/slides${query}`, downloadUrl: `${base}/download${query}`, createdAt: f.createdTime };
       });
       if (!await serviceAccess.classAllowed(c, res)) return;
       const submittedRolls = new Set(submissions.map(item => item.roll).filter(Boolean));
