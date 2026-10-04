@@ -11,6 +11,18 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
+const NOTE_SUBJECTS = ['JAVA', 'SE', 'DBMS', 'MSF', 'GS', 'COA', 'NODE-JS-LAB', 'CM-LAB'];
+const NOTE_FILE_TYPES = new Map([
+  ['.pdf', ['application/pdf']], ['.doc', ['application/msword', 'application/x-ole-storage']],
+  ['.docx', ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip']],
+  ['.ppt', ['application/vnd.ms-powerpoint', 'application/x-ole-storage']],
+  ['.pptx', ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip']],
+  ['.xls', ['application/vnd.ms-excel', 'application/x-ole-storage']],
+  ['.xlsx', ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip']],
+  ['.odt', ['application/vnd.oasis.opendocument.text', 'application/zip']], ['.ods', ['application/vnd.oasis.opendocument.spreadsheet', 'application/zip']], ['.odp', ['application/vnd.oasis.opendocument.presentation', 'application/zip']],
+  ['.rtf', ['application/rtf', 'text/rtf']], ['.csv', ['text/csv', 'application/csv', 'text/plain']], ['.md', ['text/markdown', 'text/plain']], ['.txt', ['text/plain']],
+  ['.png', ['image/png']], ['.jpg', ['image/jpeg']], ['.jpeg', ['image/jpeg']]
+]);
 const { reserveSubmission, submissionFileExists } = require('./submission-lock');
 const { parseProjectTeam } = require('./project-team');
 const { sendLocked, mountServiceAccess } = require('./service-access');
@@ -40,9 +52,19 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   }) : null;
   const upload = multer({
     dest: path.join(__dirname, 'uploads'),
-    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 5, parts: 6, fieldNameSize: 100, fieldSize: 4096 },
+    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 6, parts: 7, fieldNameSize: 100, fieldSize: 4096 },
     fileFilter(req, file, cb) {
       if (!/\.(ppt|pptx)$/i.test(file.originalname)) return cb(new Error('Only PPT and PPTX files are allowed.'));
+      cb(null, true);
+    }
+  });
+  const notesUpload = multer({
+    dest: path.join(__dirname, 'uploads'),
+    limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 3, parts: 4, fieldNameSize: 100, fieldSize: 4096 },
+    fileFilter(req, file, cb) {
+      const extension = path.extname(file.originalname).toLowerCase();
+      const acceptedTypes = NOTE_FILE_TYPES.get(extension);
+      if (!acceptedTypes || !acceptedTypes.includes(file.mimetype)) return cb(Object.assign(new Error('Upload a PDF, Word, PowerPoint, Excel, OpenDocument, RTF, CSV, Markdown, TXT, JPG, or PNG file.'), { statusCode: 400 }));
       cb(null, true);
     }
   });
@@ -136,6 +158,14 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
   }
+  function classStructure(c) {
+    const structure = Object.fromEntries(Object.entries(c.structure || {}).map(([category, subjects]) => [category, [...subjects]]));
+    if (structure.Lab?.includes('GS')) {
+      structure.Lab = structure.Lab.filter(subject => subject !== 'GS');
+      structure.Theory = [...new Set([...(structure.Theory || []), 'GS'])];
+    }
+    return structure;
+  }
   const serviceAccess = mountServiceAccess(app, { ready, requireSameOrigin, requireOwner, db, classDoc, ownerEmail });
   // Clear one stale duplicate-submission lock without changing Drive files.
   app.post('/api/owner/submission-locks/clear', requireSameOrigin, requireOwner, async (req, res) => {
@@ -148,7 +178,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
       const c = d.data();
       if (!c.rolls?.includes(roll)) return res.status(400).json({ ok: false, error: 'That roll number is not in the class roster.' });
-      if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
+      if (!classStructure(c)?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
       const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
       const lockRef = db.collection('submissionLocks').doc(lockId);
       const result = await db.runTransaction(async tx => {
@@ -177,14 +207,15 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const owner = Boolean(ownerEmail && email === ownerEmail);
     return owner || (id === c.adminId && a.approved === true && a.disabled !== true);
   }
-  async function getDrive(adminId) {
+  async function getGoogleAuth(adminId) {
     const ref = db.collection('admins').doc(adminId), snap = await ref.get();
     if (!snap.exists) throw new Error('Admin account is missing. Sign in again.');
     const auth = oauthClient(oauthConfig.redirect_uris?.[0]);
     auth.setCredentials({ refresh_token: decrypt(snap.data().refreshTokenEncrypted) });
-    return google.drive({ version: 'v3', auth });
+    return auth;
   }
-  function publicClass(data) { return { name: data.name, slug: data.slug, structure: data.structure, rolls: data.rolls }; }
+  async function getDrive(adminId) { return google.drive({ version: 'v3', auth: await getGoogleAuth(adminId) }); }
+  function publicClass(data) { return { name: data.name, slug: data.slug, structure: { ...classStructure(data), Notes: NOTE_SUBJECTS }, rolls: data.rolls }; }
   function cleanName(value) { return String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 180); }
   function escapeQuery(value) { return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
   async function locateFolder(drive, parentId, name, create = false) {
@@ -195,9 +226,27 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     return created.data.id;
   }
   async function subjectFolder(drive, c, category, subject) {
-    if (!c.structure?.[category]?.includes(subject)) throw new Error('Invalid category or subject.');
+    if (!classStructure(c)?.[category]?.includes(subject)) throw new Error('Invalid category or subject.');
     const catId = await locateFolder(drive, c.rootFolderId, category, true);
-    return locateFolder(drive, catId, subject, true);
+    const targetId = await locateFolder(drive, catId, subject, true);
+    if (category === 'Theory' && subject === 'GS' && c.structure?.Lab?.includes('GS')) {
+      try {
+        const oldLab = await locateFolder(drive, c.rootFolderId, 'Lab', false);
+        const oldGs = await locateFolder(drive, oldLab, 'GS', false);
+        let pageToken;
+        do {
+          const page = await drive.files.list({ q: `'${oldGs}' in parents and trashed = false`, fields: 'nextPageToken,files(id)', pageSize: 1000, pageToken });
+          for (const file of page.data.files || []) await drive.files.update({ fileId: file.id, addParents: targetId, removeParents: oldGs, fields: 'id' });
+          pageToken = page.data.nextPageToken;
+        } while (pageToken);
+      } catch (error) { if (!/Folder not found/.test(error.message)) throw error; }
+    }
+    return targetId;
+  }
+  async function noteFolder(drive, c, subject) {
+    if (!NOTE_SUBJECTS.includes(subject)) throw new Error('Invalid notes subject.');
+    const notesId = await locateFolder(drive, c.rootFolderId, 'Class Notes', true);
+    return locateFolder(drive, notesId, subject, true);
   }
   function oauthBindingHash(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
   function timingSafeStringEqual(a, b) {
@@ -235,12 +284,27 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       return bytesRead >= 4 && head[0] === 0x50 && head[1] === 0x4b && [0x03, 0x05, 0x07].includes(head[2]) && [0x04, 0x06, 0x08].includes(head[3]);
     } finally { await handle.close(); }
   }
+  async function noteFileSignatureIsValid(filePath, extension) {
+    const handle = await fs.promises.open(filePath, 'r');
+    try {
+      const head = Buffer.alloc(8);
+      const { bytesRead } = await handle.read(head, 0, head.length, 0);
+      const bytes = head.subarray(0, bytesRead);
+      if (extension === '.pdf') return bytes.toString('ascii', 0, 5) === '%PDF-';
+      if (['.docx', '.pptx', '.xlsx', '.odt', '.ods', '.odp'].includes(extension)) return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && [0x03, 0x05, 0x07].includes(bytes[2]) && [0x04, 0x06, 0x08].includes(bytes[3]);
+      if (['.doc', '.ppt', '.xls'].includes(extension)) return bytes.length >= 8 && bytes.equals(Buffer.from('D0CF11E0A1B11AE1', 'hex'));
+      if (extension === '.png') return bytes.length === 8 && bytes.equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+      if (['.jpg', '.jpeg'].includes(extension)) return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      if (['.txt', '.md', '.csv', '.rtf'].includes(extension)) return bytes.length > 0 && !bytes.includes(0);
+      return false;
+    } finally { await handle.close(); }
+  }
   function uploadErrorMessage(error) {
     const status = Number(error?.code || error?.response?.status || 0);
     if (status === 403) return 'Google Drive denied access. Ask the connected admin to check edit access to the class folder.';
     if (status === 404) return 'The class Drive folder could not be found or accessed.';
     if (status === 429) return 'Google Drive is receiving too many requests. Please wait and try again.';
-    if (error?.statusCode === 400) return error.message;
+    if ([400, 409].includes(error?.statusCode)) return error.message;
     return 'Upload failed. Please try again, or contact the class admin if it continues.';
   }
 
@@ -365,7 +429,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!d || d.data().legacyImport !== true) return res.status(404).json({ ok: false, error: 'Restored previous class not found.' });
       const c = d.data(), drive = await getDrive(c.adminId);
       let shared = 0, alreadyPublic = 0;
-      for (const [category, subjects] of Object.entries(c.structure || {})) {
+      for (const [category, subjects] of Object.entries(classStructure(c))) {
         const catId = await locateFolder(drive, c.rootFolderId, category, false);
         for (const subject of subjects) {
           const subjectId = await locateFolder(drive, catId, subject, false);
@@ -450,6 +514,104 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const d = await classDoc(req.params.slug); if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
     res.json({ ok: true, ...publicClass(d.data()) });
   });
+  function notesForClass(classId, subject) {
+    const key = crypto.createHash('sha256').update(subject).digest('hex');
+    return db.collection('classes').doc(classId).collection('notes').doc(key).collection('entries');
+  }
+  app.get('/api/class/:slug/notes', ready, async (req, res) => {
+    try {
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
+      const subject = String(req.query.subject || '');
+      if (!NOTE_SUBJECTS.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid notes subject.' });
+      const snapshot = await notesForClass(d.id, subject).orderBy('createdAt', 'desc').get();
+      const notes = snapshot.docs.map(doc => {
+        const note = doc.data();
+        return { id: doc.id, roll: note.roll, title: note.title, originalName: note.originalName, size: note.size, createdAt: note.createdAt?.toDate?.().toISOString() || null };
+      });
+      res.set('Cache-Control', 'no-store').json({ ok: true, notes });
+    } catch (error) {
+      console.error('Class notes lookup failed:', error.message);
+      res.status(503).json({ ok: false, error: 'Could not load class notes. Please try again.' });
+    }
+  });
+  app.post('/api/class/:slug/notes', ready, requireSameOrigin, async (req, res, next) => {
+    try {
+      if (!await rateLimitUpload(req)) return res.status(429).json({ ok: false, error: 'Too many attempts. Please try again later.' });
+      notesUpload.single('file')(req, res, error => {
+        if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : (error.statusCode || 400)).json({ ok: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Notes files must be 25 MB or smaller.' : error.message });
+        next();
+      });
+    } catch (error) {
+      console.error('Class note upload preparation failed:', error.message);
+      res.status(503).json({ ok: false, error: 'Notes uploads are temporarily unavailable. Please try again.' });
+    }
+  }, async (req, res) => {
+    let temp = req.file?.path;
+    let drive, uploaded;
+    try {
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
+      const c = d.data(), subject = String(req.body.subject || ''), title = String(req.body.title || '').trim();
+      const roll = String(req.body.roll || '').trim().toUpperCase();
+      if (!NOTE_SUBJECTS.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid notes subject.' });
+      if (!c.rolls.includes(roll)) return res.status(400).json({ ok: false, error: 'Choose a valid roll number.' });
+      if (!title || title.length > 80) return res.status(400).json({ ok: false, error: 'Give the note a short name of up to 80 characters.' });
+      if (!req.file) return res.status(400).json({ ok: false, error: 'Choose a notes file to upload.' });
+      const extension = path.extname(req.file.originalname).toLowerCase();
+      if (!await noteFileSignatureIsValid(req.file.path, extension)) return res.status(400).json({ ok: false, error: 'The file contents do not match the selected notes file type.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const admin = await db.collection('admins').doc(c.adminId).get();
+      if (!admin.exists || admin.data().disabled === true || admin.data().serviceLocked === true || admin.data().approved === false) return sendLocked(res);
+      drive = await getDrive(c.adminId);
+      const folderId = await noteFolder(drive, c, subject);
+      const originalName = cleanName(path.basename(req.file.originalname));
+      const fileName = cleanName(`${roll}_${title}_${originalName}`);
+      uploaded = await drive.files.create({
+        requestBody: { name: fileName, parents: [folderId], mimeType: req.file.mimetype },
+        media: { mimeType: req.file.mimetype, body: fs.createReadStream(req.file.path) },
+        fields: 'id,name'
+      });
+      if (!await serviceAccess.classAllowed(c, res)) {
+        await drive.files.delete({ fileId: uploaded.data.id }).catch(() => {});
+        uploaded = null;
+        return;
+      }
+      const ref = notesForClass(d.id, subject).doc();
+      const createdAt = new Date();
+      const note = { fileId: uploaded.data.id, subject, title, originalName, contentType: req.file.mimetype, size: req.file.size, roll, createdAt };
+      await ref.set(note);
+      res.status(201).json({ ok: true, note: { id: ref.id, title, roll, originalName, size: req.file.size, createdAt: createdAt.toISOString() } });
+    } catch (error) {
+      console.error('Class note creation failed:', error.message);
+      if (uploaded?.data?.id && drive) await drive.files.delete({ fileId: uploaded.data.id }).catch(() => {});
+      res.status(error.statusCode || 503).json({ ok: false, error: error.statusCode === 400 ? error.message : 'Could not upload your note. Please try again.' });
+    } finally { if (temp) fs.promises.unlink(temp).catch(() => {}); }
+  });
+  app.get('/api/class/:slug/notes/:noteId/download', ready, async (req, res) => {
+    try {
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
+      const subject = String(req.query.subject || ''), noteId = String(req.params.noteId || '');
+      if (!NOTE_SUBJECTS.includes(subject) || !/^[\w-]{10,40}$/.test(noteId)) return res.status(400).json({ ok: false, error: 'Invalid notes link.' });
+      const snapshot = await notesForClass(d.id, subject).doc(noteId).get();
+      if (!snapshot.exists) return res.status(404).json({ ok: false, error: 'Note not found.' });
+      const c = d.data(), note = snapshot.data(), drive = await getDrive(c.adminId), folderId = await noteFolder(drive, c, subject);
+      const file = await drive.files.get({ fileId: note.fileId, fields: 'id,name,parents,trashed' });
+      if (file.data.trashed || !file.data.parents?.includes(folderId)) return res.status(404).json({ ok: false, error: 'Note file not found in this class.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const extension = path.extname(note.originalName).toLowerCase();
+      const safeName = cleanName(note.originalName).replace(/[^\x20-\x7E]/g, '_').replace(/["\r\n]/g, '_');
+      const content = await drive.files.get({ fileId: note.fileId, alt: 'media' }, { responseType: 'stream' });
+      res.status(200).set({ 'Content-Type': NOTE_FILE_TYPES.get(extension)?.[0] || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${safeName}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+      content.data.on('error', error => { console.error('Class note download failed:', error.message); if (!res.headersSent) res.status(502).end(); else res.destroy(); });
+      content.data.pipe(res);
+    } catch (error) {
+      console.error('Class note download failed:', error.message);
+      if (!res.headersSent) res.status(503).json({ ok: false, error: 'Could not download this note. Please try again.' });
+      else res.destroy();
+    }
+  });
   app.post('/api/upload', ready, requireSameOrigin, async (req, res, next) => {
     try {
       if (!await rateLimitUpload(req)) return res.status(429).json({ ok: false, error: 'Too many upload attempts from this network. Please wait ten minutes and try again.' });
@@ -469,7 +631,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await serviceAccess.classAllowed(d.data(), res)) return;
       const c = d.data(), roll = String(req.body.roll || '').trim().toUpperCase(), category = String(req.body.category || ''), subject = String(req.body.subject || '');
       if (!c.rolls.includes(roll)) return res.status(400).json({ ok: false, error: 'This roll number is not in the class roster.' });
-      if (!c.structure?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
+      if (!classStructure(c)?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Invalid category or subject.' });
       const projectTeam = parseProjectTeam(category, req.body.projectTeam, roll, c.rolls);
       const lockId = crypto.createHash('sha256').update([d.id, category, subject, roll].join('\0')).digest('hex');
       submissionRef = db.collection('submissionLocks').doc(lockId);
@@ -519,6 +681,37 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     }
     finally { if (temp) fs.promises.unlink(temp).catch(() => {}); }
   });
+  app.get('/api/class/:slug/presentations/:fileId/:action', ready, async (req, res) => {
+    try {
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data();
+      if (!await canViewClass(req, c)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
+      const { fileId, action } = req.params;
+      const category = String(req.query.category || ''), subject = String(req.query.subject || '');
+      if (!/^[\w-]+$/.test(fileId) || !['view', 'slides', 'download'].includes(action) || !classStructure(c)?.[category]?.includes(subject)) {
+        return res.status(400).json({ ok: false, error: 'Invalid presentation link.' });
+      }
+      const drive = await getDrive(c.adminId);
+      const categoryId = await locateFolder(drive, c.rootFolderId, category);
+      const folderId = await locateFolder(drive, categoryId, subject);
+      const file = await drive.files.get({ fileId, fields: 'id,name,parents,trashed' });
+      if (file.data.trashed || !/\.(ppt|pptx)$/i.test(file.data.name || '') || !file.data.parents?.includes(folderId)) {
+        return res.status(404).json({ ok: false, error: 'Presentation not found in this class.' });
+      }
+      // Recheck after Drive lookup in case access changed while the request was running.
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const urls = {
+        view: `https://drive.google.com/file/d/${fileId}/view`,
+        slides: `https://docs.google.com/presentation/d/${fileId}/edit`,
+        download: `https://drive.google.com/uc?export=download&id=${fileId}`
+      };
+      res.set('Cache-Control', 'no-store').redirect(urls[action]);
+    } catch (error) {
+      console.error('Presentation access failed:', error.message);
+      res.status(503).json({ ok: false, error: 'Could not open this presentation. Please try again.' });
+    }
+  });
   app.get('/api/ppts', ready, async (req, res) => {
     try {
       const d = await classDoc(String(req.query.class || ''));
@@ -526,7 +719,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await canViewClass(req, d.data())) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
       const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || ''), drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
       const files = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'files(id,name,createdTime,webViewLink)', pageSize: 1000, orderBy: 'name' });
-      const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => ({ roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, createdAt: f.createdTime }));
+      const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => {
+        const base = `/api/class/${encodeURIComponent(c.slug)}/presentations/${encodeURIComponent(f.id)}`;
+        const query = `?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
+        return { roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id,
+          driveUrl: `${base}/view${query}`, slidesUrl: `${base}/slides${query}`, downloadUrl: `${base}/download${query}`, createdAt: f.createdTime };
+      });
+      if (!await serviceAccess.classAllowed(c, res)) return;
       res.json({ ok: true, subject, category, count: submissions.length, totalStudents: c.rolls.length, submissions });
     } catch (e) { console.error('Submission listing failed:', e.message); res.status(500).json({ ok: false, error: 'Could not load submissions. Check Drive access and try again.' }); }
   });
@@ -535,9 +734,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     if (!d) return res.status(404).json({ ok: false, error: 'Class link not found.' });
     const c = d.data();
     if (!await canViewClass(req, c)) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
-    res.json({ ok: true, structure: c.structure, className: c.name, totalStudents: c.rolls.length });
+    res.json({ ok: true, structure: { ...classStructure(c), Notes: NOTE_SUBJECTS }, className: c.name, totalStudents: c.rolls.length });
   });
   app.get('/api/health', ready, async (req, res) => { res.json({ ok: true, multiAdmin: true, storage: 'firestore' }); });
 }
 
 module.exports = createMultiAdmin;
+
