@@ -1,4 +1,4 @@
-﻿:root { font-family: "Segoe UI", Arial, sans-serif; color: #30283d; background: #f7f1e9; font-synthesis: none; --accent: #7844b5; --border: #dfd6e5; }
+:root { font-family: "Segoe UI", Arial, sans-serif; color: #30283d; background: #f7f1e9; font-synthesis: none; --accent: #7844b5; --border: #dfd6e5; }
 * { box-sizing: border-box; }
 body {
   margin: 0; min-height: 100vh; padding: 32px 16px; font-size: 15px;
@@ -59,3 +59,12 @@ input[type=password] { padding: 12px; background: #faf7fc; }
 .team-section > label:first-child { margin-top: 0; }
 .team-section select { background-color: #fff; }
 .team-section label { font-size: 12px; }
+.notes-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e9e0ed; }
+.notes-section h2 { margin: 0; color: #4d3c59; font-size: 18px; }
+.notes-help, .notes-status { color: #75647f; font-size: 12px; line-height: 1.5; }
+.notes-help { margin: 6px 0 13px; }
+.notes-section label { margin-top: 14px; }
+.notes-section button { margin-top: 11px; }
+.notes-section button::before { display: none; }
+.notes-status { min-height: 1em; margin: 8px 0 0; }
+
