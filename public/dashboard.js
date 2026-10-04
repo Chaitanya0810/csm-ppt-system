@@ -1,25 +1,28 @@
-﻿const categorySelect = document.getElementById('category');
+const categorySelect = document.getElementById('category');
 const subjectSelect = document.getElementById('subject');
 const refreshButton = document.getElementById('refresh');
 const refreshLabel = document.getElementById('refreshLabel');
 const info = document.getElementById('info');
 const content = document.getElementById('content');
+const resultsTitle = document.getElementById('resultsTitle');
 const classSlug = new URLSearchParams(location.search).get('class') || '0ByADJgBHSrnWtxN';
 document.getElementById('studentLink').href = `/student.html?class=${encodeURIComponent(classSlug)}`;
-document.getElementById('adminLink').href = `/admin.html?class=${encodeURIComponent(classSlug)}`;
-let structure = {}, configured = false, requestId = 0, activeRequest, serviceLocked = false;
+document.getElementById('adminLink').href = `/admin-login.html?class=${encodeURIComponent(classSlug)}`;
+let structure = {}, configured = false, requestId = 0, activeRequest;
+let serviceLocked = false;
+window.addEventListener('service-locked', event => {
+  serviceLocked = true;
+  cancelRequest();
+  categorySelect.disabled = true; subjectSelect.disabled = true;
+  configured = false; busy(false);
+  showState(event.detail, 'error'); info.textContent = 'Access unavailable';
+});
 function showState(text, className = 'empty') {
   const state = document.createElement('div');
   state.className = className;
   state.textContent = text;
   content.replaceChildren(state);
 }
-window.addEventListener('service-locked', event => {
-  serviceLocked = true; cancelRequest();
-  categorySelect.disabled = true; subjectSelect.disabled = true; refreshButton.disabled = true;
-  showState(event.detail || 'Access temporarily unavailable. Please contact the app owner.', 'error');
-  info.textContent = 'Access unavailable';
-});
 function busy(value) {
   content.setAttribute('aria-busy', String(value));
   refreshButton.disabled = value || (configured && (!categorySelect.value || !subjectSelect.value));
@@ -50,7 +53,7 @@ async function loadConfig() {
   } catch (error) {
     showState(error.message, 'error');
     info.textContent = 'Could not load the dashboard. Use Refresh to retry.';
-  } finally { if (!serviceLocked) busy(false); }
+  } finally { busy(false); }
 }
 function cancelRequest() { requestId++; activeRequest?.abort(); }
 categorySelect.addEventListener('change', () => {
@@ -76,12 +79,35 @@ async function loadPPTs() {
   }
   activeRequest = new AbortController();
   busy(true);
+  resultsTitle.textContent = category === 'Notes' ? 'Shared notes' : 'Presentations';
   info.textContent = `${subject} · ${category}`;
-  showState('Loading presentations…', 'loading-state');
+  showState(category === 'Notes' ? 'Loading notes…' : 'Loading presentations…', 'loading-state');
   try {
-    const data = await getData(`/api/ppts?class=${encodeURIComponent(classSlug)}&category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`, activeRequest.signal);
-    if (serviceLocked) return;
+    const data = category === 'Notes'
+      ? await getData(`/api/class/${encodeURIComponent(classSlug)}/notes?subject=${encodeURIComponent(subject)}`, activeRequest.signal)
+      : await getData(`/api/ppts?class=${encodeURIComponent(classSlug)}&category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`, activeRequest.signal);
     if (currentId !== requestId) return;
+    if (category === 'Notes') {
+      info.textContent = `${subject} · Notes · ${data.notes.length} uploads`;
+      if (!data.notes.length) { showState('No notes uploaded for this subject yet.'); return; }
+      const grid = document.createElement('div'); grid.className = 'grid';
+      data.notes.forEach(item => {
+        const card = document.createElement('article'); card.className = 'card';
+        const top = document.createElement('div'); top.className = 'card-top';
+        const icon = document.createElement('span'); icon.className = 'file-icon'; icon.textContent = 'NOTE'; icon.setAttribute('aria-hidden', 'true');
+        top.append(icon);
+        const title = document.createElement('h3'); title.className = 'note-title'; title.textContent = item.title;
+        const original = document.createElement('p'); original.className = 'presentation-hint'; original.textContent = item.originalName;
+        const roll = document.createElement('p'); roll.className = 'presentation-hint'; roll.textContent = `Uploaded by ${item.roll || 'Student'}`;
+        const download = document.createElement('a'); download.className = 'open';
+        download.href = `/api/class/${encodeURIComponent(classSlug)}/notes/${encodeURIComponent(item.id)}/download?subject=${encodeURIComponent(subject)}`;
+        download.textContent = 'Download note';
+        card.append(top, title, original, roll, download); grid.append(card);
+      });
+      content.replaceChildren(grid);
+      return;
+    }
+    resultsTitle.textContent = 'Presentations';
     info.textContent = `${subject} · ${category} · ${data.count}/${data.totalStudents} submitted`;
     if (!data.submissions?.length) { showState('No PPTs submitted yet.'); return; }
     const grid = document.createElement('div'); grid.className = 'grid';
@@ -93,11 +119,28 @@ async function loadPPTs() {
       top.append(icon, roll);
       const filename = document.createElement('div'); filename.className = 'filename'; filename.textContent = item.fileName;
       card.append(top, filename);
-      const url = item.presentationUrl || item.driveUrl || '';
-      if (/^https?:\/\//i.test(url)) {
+      const fileId = typeof item.fileId === 'string' && /^[\w-]+$/.test(item.fileId) ? item.fileId : '';
+      const driveUrl = item.driveUrl || (fileId ? `https://drive.google.com/file/d/${fileId}/view` : '');
+      const url = driveUrl || item.presentationUrl || '';
+      if (/^(?:https?:\/\/|\/(?!\/))/i.test(url)) {
         const link = document.createElement('a'); link.className = 'open'; link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        link.textContent = 'Open presentation';
+        link.textContent = 'View presentation';
         const arrow = document.createElement('span'); arrow.textContent = '↗'; arrow.setAttribute('aria-hidden', 'true'); link.append(arrow); card.append(link);
+        const actions = document.createElement('div'); actions.className = 'presentation-actions';
+        const slidesUrl = item.slidesUrl || (fileId ? `https://docs.google.com/presentation/d/${fileId}/edit` : item.presentationUrl);
+        const addAction = (label, href) => {
+          if (!/^(?:https?:\/\/|\/(?!\/))/i.test(href || '')) return;
+          const action = document.createElement('a'); action.textContent = label; action.href = href;
+          action.target = '_blank'; action.rel = 'noopener noreferrer'; actions.append(action);
+        };
+        addAction('Google Slides', slidesUrl);
+        if (item.downloadUrl || fileId) addAction('Download PPT', item.downloadUrl || `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`);
+        if (actions.childElementCount) card.append(actions);
+        if (fileId) {
+          const hint = document.createElement('p'); hint.className = 'presentation-hint';
+          hint.textContent = 'To use an app on your device, download the PPT, then open it with Google Slides, PowerPoint, or another presentation app.';
+          card.append(hint);
+        }
       } else {
         const note = document.createElement('p'); note.className = 'unavailable'; note.textContent = data.preview ? 'Sample presentation' : 'Presentation link unavailable.'; card.append(note);
       }
@@ -108,6 +151,7 @@ async function loadPPTs() {
     if (currentId !== requestId || error.name === 'AbortError') return;
     showState(error.message, 'error');
     info.textContent = 'Could not load presentations. Use Refresh to retry.';
-  } finally { if (currentId === requestId && !serviceLocked) busy(false); }
+  } finally { if (currentId === requestId) busy(false); }
 }
 loadConfig();
+
