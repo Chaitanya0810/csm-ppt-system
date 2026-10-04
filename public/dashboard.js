@@ -122,27 +122,29 @@ async function loadPPTs() {
     }
     resultsTitle.textContent = 'Presentations';
     info.textContent = `${subject} · ${category} · ${data.count}/${data.totalStudents} submitted`;
-    if (!data.submissions?.length) { showState('No PPTs submitted yet.'); return; }
+    if (!data.submissions?.length) { showState('No presentations or PDFs found for this subject yet.'); return; }
     const grid = document.createElement('div'); grid.className = 'grid';
     data.submissions.forEach(item => {
       const card = document.createElement('article'); card.className = 'card';
       const top = document.createElement('div'); top.className = 'card-top';
-      const icon = document.createElement('span'); icon.className = 'file-icon'; icon.textContent = 'PPT'; icon.setAttribute('aria-hidden', 'true');
+      const isPdf = item.fileType === 'pdf' || /\.pdf$/i.test(item.fileName || '');
+      const icon = document.createElement('span'); icon.className = 'file-icon'; icon.textContent = isPdf ? 'PDF' : 'PPT'; icon.setAttribute('aria-hidden', 'true');
       const roll = document.createElement('div'); roll.className = 'roll'; roll.textContent = item.roll || 'Presentation';
       top.append(icon, roll);
       const filename = document.createElement('div'); filename.className = 'filename'; filename.textContent = item.fileName;
       card.append(top, filename);
       const fileId = typeof item.fileId === 'string' && /^[\w-]+$/.test(item.fileId) ? item.fileId : '';
       const slidesUrl = item.slidesUrl || (fileId ? `https://docs.google.com/presentation/d/${fileId}/edit` : item.presentationUrl || '');
+      const viewUrl = isPdf ? (item.driveUrl || '') : slidesUrl;
       const downloadUrl = item.downloadUrl || (fileId ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}` : '');
-      if (/^(?:https?:\/\/|\/(?!\/))/i.test(slidesUrl)) {
-        const link = document.createElement('a'); link.className = 'open'; link.href = slidesUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        link.textContent = 'Open presentation';
+      if (/^(?:https?:\/\/|\/(?!\/))/i.test(viewUrl)) {
+        const link = document.createElement('a'); link.className = 'open'; link.href = viewUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        link.textContent = isPdf ? 'View PDF' : 'Open presentation';
         card.append(link);
         if (/^(?:https?:\/\/|\/(?!\/))/i.test(downloadUrl)) {
           const actions = document.createElement('div'); actions.className = 'presentation-actions';
           const download = document.createElement('a'); download.href = downloadUrl; download.target = '_blank'; download.rel = 'noopener noreferrer';
-          download.textContent = 'Download PPT'; actions.append(download); card.append(actions);
+          download.textContent = isPdf ? 'Download PDF' : 'Download PPT'; actions.append(download); card.append(actions);
         }
       } else {
         const note = document.createElement('p'); note.className = 'unavailable'; note.textContent = data.preview ? 'Sample presentation' : 'Presentation link unavailable.'; card.append(note);
