@@ -699,8 +699,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const categoryId = await locateFolder(drive, c.rootFolderId, category);
       const folderId = await locateFolder(drive, categoryId, subject);
       const file = await drive.files.get({ fileId, fields: 'id,name,parents,trashed' });
-      if (file.data.trashed || !/\.(ppt|pptx)$/i.test(file.data.name || '') || !file.data.parents?.includes(folderId)) {
-        return res.status(404).json({ ok: false, error: 'Presentation not found in this class.' });
+      const isPdf = /\.pdf$/i.test(file.data.name || '');
+      const isPowerPoint = /\.(ppt|pptx)$/i.test(file.data.name || '');
+      if (file.data.trashed || (!isPdf && !isPowerPoint) || !file.data.parents?.includes(folderId) || (isPdf && action === 'slides')) {
+        return res.status(404).json({ ok: false, error: 'Presentation or PDF not found in this class.' });
       }
       // Recheck after Drive lookup in case access changed while the request was running.
       if (!await serviceAccess.classAllowed(c, res)) return;
@@ -722,14 +724,16 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await canViewClass(req, d.data())) return res.status(401).json({ ok: false, error: 'Sign in as the class admin or app owner to view submissions.' });
       const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || ''), drive = await getDrive(c.adminId), folderId = await subjectFolder(drive, c, category, subject);
       const files = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'files(id,name,createdTime,webViewLink)', pageSize: 1000, orderBy: 'name' });
-      const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx)$/i.test(f.name)).map(f => {
+      const submissions = (files.data.files || []).filter(f => /\.(ppt|pptx|pdf)$/i.test(f.name)).map(f => {
         const base = `/api/class/${encodeURIComponent(c.slug)}/presentations/${encodeURIComponent(f.id)}`;
         const query = `?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`;
-        return { roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id,
-          driveUrl: `${base}/view${query}`, slidesUrl: `${base}/slides${query}`, downloadUrl: `${base}/download${query}`, createdAt: f.createdTime };
+        const isPdf = /\.pdf$/i.test(f.name);
+        return { roll: c.rolls.find(r => f.name.toUpperCase().startsWith(`${r}_`)) || '', fileName: f.name, fileId: f.id, fileType: isPdf ? 'pdf' : 'ppt',
+          driveUrl: `${base}/view${query}`, slidesUrl: isPdf ? '' : `${base}/slides${query}`, downloadUrl: `${base}/download${query}`, createdAt: f.createdTime };
       });
       if (!await serviceAccess.classAllowed(c, res)) return;
-      res.json({ ok: true, subject, category, count: submissions.length, totalStudents: c.rolls.length, submissions });
+      const submittedRolls = new Set(submissions.map(item => item.roll).filter(Boolean));
+      res.json({ ok: true, subject, category, count: submittedRolls.size, totalStudents: c.rolls.length, submissions });
     } catch (e) { console.error('Submission listing failed:', e.message); res.status(500).json({ ok: false, error: 'Could not load submissions. Check Drive access and try again.' }); }
   });
   app.get('/api/config', ready, async (req, res) => {
