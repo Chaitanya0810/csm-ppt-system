@@ -99,10 +99,23 @@ async function loadPPTs() {
         const title = document.createElement('h3'); title.className = 'note-title'; title.textContent = item.title;
         const original = document.createElement('p'); original.className = 'presentation-hint'; original.textContent = item.originalName;
         const roll = document.createElement('p'); roll.className = 'presentation-hint'; roll.textContent = `Uploaded by ${item.roll || 'Student'}`;
+        const noteUrl = `/api/class/${encodeURIComponent(classSlug)}/notes/${encodeURIComponent(item.id)}/download?subject=${encodeURIComponent(subject)}`;
         const download = document.createElement('a'); download.className = 'open';
-        download.href = `/api/class/${encodeURIComponent(classSlug)}/notes/${encodeURIComponent(item.id)}/download?subject=${encodeURIComponent(subject)}`;
+        download.href = noteUrl;
         download.textContent = 'Download note';
-        card.append(top, title, original, roll, download); grid.append(card);
+        card.append(top, title, original, roll);
+        const extension = item.originalName.split('.').pop().toLowerCase();
+        if (['pdf', 'png', 'jpg', 'jpeg', 'txt', 'md', 'csv'].includes(extension)) {
+          const preview = document.createElement('a'); preview.className = 'open';
+          preview.href = `${noteUrl}&preview=1`; preview.target = '_blank'; preview.rel = 'noopener';
+          preview.textContent = 'View note';
+          card.append(preview);
+        } else {
+          const hint = document.createElement('p'); hint.className = 'presentation-hint';
+          hint.textContent = 'Browser preview is not supported for this file type. Download it to view.';
+          card.append(hint);
+        }
+        card.append(download); grid.append(card);
       });
       content.replaceChildren(grid);
       return;
