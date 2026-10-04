@@ -1,17 +1,17 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CSM PPT Dashboard</title>
-  <link rel="stylesheet" href="/dashboard.css?v=4">
+  <link rel="stylesheet" href="/dashboard.css?v=6">
   <link rel="stylesheet" href="/theme-variants.css?v=8">
   <script src="/theme-preview.js?v=7"></script>
-  <script src="/dashboard.js?v=3" defer></script>
+  <script src="/dashboard.js?v=6" defer></script>
   <script src="/service-status.js?v=1" defer></script>
 </head>
 <body>
-  <header class="header"><div class="header-inner"><div><h1>PPT Dashboard</h1><p id="className">CSM presentations</p></div><nav class="header-nav" aria-label="Page navigation"><a id="studentLink" href="/">Upload PPT <span aria-hidden="true">↗</span></a><a id="adminLink" href="/admin.html">Admin</a></nav></div></header>
+  <header class="header"><div class="header-inner"><div><h1>PPT Dashboard</h1><p id="className">CSM presentations</p></div><nav class="header-nav" aria-label="Page navigation"><a id="studentLink" href="/">Upload PPT <span aria-hidden="true">↗</span></a><a id="adminLink" href="/admin-login.html">Admin</a></nav></div></header>
   <main>
     <p id="preview" class="preview" hidden>Local preview · Sample submissions</p>
     <section class="controls" aria-label="Filter presentations">
@@ -19,9 +19,10 @@
       <div><label for="subject">Subject</label><select id="subject" disabled><option value="">Select subject</option></select></div>
       <button id="refresh" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span id="refreshLabel">Refresh</span></button>
     </section>
-    <div class="results-heading"><h2>Presentations</h2><span id="info" role="status" aria-live="polite">Select a category and subject.</span></div>
-    <section id="content" aria-label="Presentations" aria-busy="false"><div class="empty">Select a category and subject to view PPTs.</div></section>
+    <div class="results-heading"><h2 id="resultsTitle">Presentations</h2><span id="info" role="status" aria-live="polite">Select a category and subject.</span></div>
+    <section id="content" aria-label="Presentations" aria-busy="false"><div class="empty">Select a category and subject to view uploads.</div></section>
   </main>
   <footer class="creator-credit">Created by Ch.Chaitanya</footer>
 </body>
 </html>
+
