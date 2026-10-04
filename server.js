@@ -42,8 +42,7 @@ const STRUCTURE = {
         "CM",
         "JAVA",
         "DBMS",
-        "SE",
-        "GS"
+        "SE"
     ],
 
     Theory: [
@@ -51,7 +50,8 @@ const STRUCTURE = {
         "JAVA",
         "COA",
         "DBMS",
-        "SE"
+        "SE",
+        "GS"
     ],
 
     Project: [
@@ -183,11 +183,7 @@ app.use(
     })
 );
 
-app.get('/admin.html', (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(path.join(__dirname, 'private', 'admin.html'));
-});
-app.get('/admin-login.html', (_req, res) => res.redirect(302, '/admin.html'));
+require('./admin-gate')(app);
 
 app.use(
     express.static(
@@ -1645,3 +1641,4 @@ async function startServer() {
 
 
 startServer();
+
