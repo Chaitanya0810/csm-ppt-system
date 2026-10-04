@@ -602,8 +602,11 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!await serviceAccess.classAllowed(c, res)) return;
       const extension = path.extname(note.originalName).toLowerCase();
       const safeName = cleanName(note.originalName).replace(/[^\x20-\x7E]/g, '_').replace(/["\r\n]/g, '_');
+      const preview = req.query.preview === '1';
+      const previewable = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.txt', '.md', '.csv']);
+      if (preview && !previewable.has(extension)) return res.status(415).json({ ok: false, error: 'This file type cannot be previewed in the browser. Download it to view.' });
       const content = await drive.files.get({ fileId: note.fileId, alt: 'media' }, { responseType: 'stream' });
-      res.status(200).set({ 'Content-Type': NOTE_FILE_TYPES.get(extension)?.[0] || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${safeName}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+      res.status(200).set({ 'Content-Type': NOTE_FILE_TYPES.get(extension)?.[0] || 'application/octet-stream', 'Content-Disposition': `${preview ? 'inline' : 'attachment'}; filename="${safeName}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
       content.data.on('error', error => { console.error('Class note download failed:', error.message); if (!res.headersSent) res.status(502).end(); else res.destroy(); });
       content.data.pipe(res);
     } catch (error) {
