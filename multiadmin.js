@@ -440,9 +440,13 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const c = d.data(), drive = await getDrive(c.adminId);
       let shared = 0, alreadyPublic = 0;
       for (const [category, subjects] of Object.entries(classStructure(c))) {
-        const catId = await locateFolder(drive, c.rootFolderId, category, false);
+        let catId;
+        try { catId = await locateFolder(drive, c.rootFolderId, category, false); }
+        catch (error) { if (/^Folder not found:/.test(error.message)) continue; throw error; }
         for (const subject of subjects) {
-          const subjectId = await locateFolder(drive, catId, subject, false);
+          let subjectId;
+          try { subjectId = await locateFolder(drive, catId, subject, false); }
+          catch (error) { if (/^Folder not found:/.test(error.message)) continue; throw error; }
           let pageToken;
           do {
             const page = await drive.files.list({ q: `'${subjectId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType)', pageSize: 1000, pageToken });
