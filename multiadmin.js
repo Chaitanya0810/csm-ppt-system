@@ -433,10 +433,10 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       res.status(400).json({ ok: false, error: uploadErrorMessage(e) });
     }
   });
-  app.post('/api/owner/classes/:slug/public-dashboard', requireSameOrigin, requireOwner, async (req, res) => {
+  app.post('/api/admin/classes/:slug/public-dashboard', requireSameOrigin, requireAdmin, async (req, res) => {
     try {
       const d = await classDoc(String(req.params.slug || ''));
-      if (!d || d.data().legacyImport !== true) return res.status(404).json({ ok: false, error: 'Restored previous class not found.' });
+      if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
       const c = d.data(), drive = await getDrive(c.adminId);
       let shared = 0, alreadyPublic = 0;
       for (const [category, subjects] of Object.entries(classStructure(c))) {
@@ -447,7 +447,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
           do {
             const page = await drive.files.list({ q: `'${subjectId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType)', pageSize: 1000, pageToken });
             for (const file of page.data.files || []) {
-              if (!/\.(ppt|pptx)$/i.test(file.name || '')) continue;
+              if (!/\.(ppt|pptx|pdf)$/i.test(file.name || '')) continue;
               const perms = await drive.permissions.list({ fileId: file.id, supportsAllDrives: true, fields: 'permissions(id,type,role)' });
               if ((perms.data.permissions || []).some(p => p.type === 'anyone' && ['reader', 'commenter', 'writer', 'owner'].includes(p.role))) { alreadyPublic++; continue; }
               await drive.permissions.create({ fileId: file.id, supportsAllDrives: true, requestBody: { type: 'anyone', role: 'reader' }, fields: 'id' });
@@ -461,7 +461,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       res.json({ ok: true, shared, alreadyPublic, publicDashboard: true });
     } catch (e) {
       console.error('Enabling public dashboard failed:', e.message);
-      res.status(400).json({ ok: false, error: 'Could not make all presentations viewable. Check the owner Drive access and Google Drive sharing policy, then try again.' });
+      res.status(400).json({ ok: false, error: 'Could not make this class viewable. Check the class admin Drive access and Google Drive sharing policy, then try again.' });
     }
   });
   app.post('/api/owner/admins/:adminId/access', requireSameOrigin, requireOwner, async (req, res) => {
