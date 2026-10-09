@@ -158,6 +158,12 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const q = await db.collection('classes').where('slug', '==', slug).limit(1).get();
     return q.empty ? null : q.docs[0];
   }
+  async function classShortCode(name) {
+    const base = String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'class';
+    let code = base, suffix = 2;
+    while (!(await db.collection('classes').where('shortCode', '==', code).limit(1).get()).empty) code = `${base.slice(0, 44)}-${suffix++}`;
+    return code;
+  }
   function classStructure(c) {
     const structure = Object.fromEntries(Object.entries(c.structure || {}).map(([category, subjects]) => [category, [...subjects]]));
     if (structure.Lab?.includes('GS')) {
@@ -367,7 +373,11 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const classes = [];
     for (const doc of q.docs) {
       const c = doc.data();
-      const item = { ...publicClass(c), adminId: c.adminId, legacyImport: c.legacyImport === true, publicDashboard: c.publicDashboard === true };
+      if (!c.shortCode && c.name) {
+        c.shortCode = await classShortCode(c.name);
+        await doc.ref.set({ shortCode: c.shortCode }, { merge: true });
+      }
+      const item = { ...publicClass(c), shortCode: c.shortCode || '', studentUrl: c.shortCode ? `${appBase(req)}/${c.shortCode}` : `${appBase(req)}/?class=${encodeURIComponent(c.slug)}`, adminId: c.adminId, legacyImport: c.legacyImport === true, publicDashboard: c.publicDashboard === true };
       if (req.isOwner) item.adminEmail = (await db.collection('admins').doc(c.adminId).get()).data()?.email || 'Unknown admin';
       classes.push(item);
     }
@@ -497,8 +507,9 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         safeStructure[c] = s;
       }
       const slug = crypto.randomBytes(12).toString('base64url');
-      await db.collection('classes').doc(crypto.randomUUID()).set({ adminId: req.adminId, slug, name: String(name).trim().slice(0, 100), rootFolderId: root.data.id, structure: safeStructure, rolls: cleanRolls, createdAt: new Date() });
-      res.json({ ok: true, slug, studentUrl: `${appBase(req)}/?class=${slug}` });
+      const cleanName = String(name).trim().slice(0, 100), shortCode = await classShortCode(cleanName);
+      await db.collection('classes').doc(crypto.randomUUID()).set({ adminId: req.adminId, slug, shortCode, name: cleanName, rootFolderId: root.data.id, structure: safeStructure, rolls: cleanRolls, createdAt: new Date() });
+      res.json({ ok: true, slug, shortCode, studentUrl: `${appBase(req)}/${shortCode}` });
     } catch (e) {
       console.error('Class creation failed:', e.message);
       res.status(400).json({ ok: false, error: 'Could not create class. Check the folder ID, edit access, category/subject settings, and roll numbers.' });
@@ -508,6 +519,24 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const d = await classDoc(req.params.slug);
     if (!d || (!req.isOwner && d.data().adminId !== req.adminId)) return res.status(404).json({ ok: false, error: 'Class not found.' });
     await d.ref.delete(); res.json({ ok: true });
+  });
+
+  // Human-friendly class links, e.g. /ii-csm-section-a.
+  app.get('/:shortCode', ready, async (req, res, next) => {
+    const code = String(req.params.shortCode || '').toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{0,49}$/.test(code)) return next();
+    try {
+      let found = await db.collection('classes').where('shortCode', '==', code).limit(1).get();
+      if (found.empty) {
+        const legacy = await classDoc(code);
+        if (legacy) found = { empty: false, docs: [legacy] };
+      }
+      if (found.empty) return next();
+      res.redirect(302, `/student.html?class=${encodeURIComponent(found.docs[0].data().slug)}`);
+    } catch (e) {
+      console.error('Class short link lookup failed:', e.message);
+      res.status(503).send('Class link is temporarily unavailable.');
+    }
   });
 
   app.get('/api/class/:slug', ready, async (req, res) => {
