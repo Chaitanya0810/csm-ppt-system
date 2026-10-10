@@ -234,6 +234,63 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     return auth;
   }
   async function getDrive(adminId) { return google.drive({ version: 'v3', auth: await getGoogleAuth(adminId) }); }
+  function lecturerGradeSheetRef(classRef, category, subject) {
+    const key = crypto.createHash('sha256').update(`${category}\0${subject}`).digest('hex');
+    return classRef.collection('lecturerGradeSheets').doc(key);
+  }
+  async function lecturerGradeRows(classRef, c, category, subject, drive) {
+    const categoryId = await locateFolder(drive, c.rootFolderId, category, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; });
+    const folderId = categoryId ? await locateFolder(drive, categoryId, subject, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; }) : null;
+    const files = [];
+    if (folderId) {
+      let pageToken;
+      do {
+        const page = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,createdTime)', pageSize: 1000, pageToken, orderBy: 'name' });
+        files.push(...(page.data.files || []).filter(file => /\.(ppt|pptx|pdf)$/i.test(file.name || '')));
+        pageToken = page.data.nextPageToken;
+      } while (pageToken);
+    }
+    const reviews = await classRef.collection('submissionReviews').get();
+    const byFileId = Object.fromEntries(reviews.docs.map(doc => [doc.id, doc.data()]));
+    const rolls = [...(c.rolls || [])].sort((a, b) => b.length - a.length), submitted = new Set();
+    const rows = [
+      [c.name], [`${category} · ${subject}`], [''],
+      ['Roll number', 'PPT status', 'Completion', 'Marks (out of 10)', 'Submitted at', 'Reviewed by', 'Last reviewed at']
+    ];
+    for (const file of files) {
+      let rest = String(file.name || '').toUpperCase(); const matched = [];
+      while (true) {
+        const roll = rolls.find(item => rest.startsWith(`${item}_`) || rest.startsWith(`${item}.`));
+        if (!roll || matched.includes(roll)) break;
+        matched.push(roll); submitted.add(roll); rest = rest.slice(roll.length + 1);
+      }
+      const review = byFileId[file.id] || {};
+      const submittedAt = file.createdTime || '';
+      const reviewedAt = review.updatedAt?.toDate ? review.updatedAt.toDate().toISOString() : '';
+      const reviewFields = [review.completed === true ? 'Completed' : 'Not completed', Number.isFinite(review.marks) ? review.marks : '', review.updatedByName || review.updatedByEmail || '', reviewedAt];
+      if (matched.length) for (const roll of matched) rows.push([roll, 'Submitted', ...reviewFields.slice(0, 2), submittedAt, ...reviewFields.slice(2)]);
+      else rows.push(['Roll number not identified', 'Submitted', ...reviewFields.slice(0, 2), submittedAt, ...reviewFields.slice(2)]);
+    }
+    for (const roll of c.rolls || []) if (!submitted.has(roll)) rows.push([roll, 'Not submitted', '', '', '', '', '']);
+    return rows;
+  }
+  async function syncLecturerGradeSheet(classRef, c, category, subject, drive, sheets, sheetId) {
+    const values = await lecturerGradeRows(classRef, c, category, subject, drive);
+    await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: 'Marks!A:Z', requestBody: {} });
+    await sheets.spreadsheets.values.update({ spreadsheetId: sheetId, range: 'Marks!A1', valueInputOption: 'RAW', requestBody: { values } });
+  }
+  async function syncExistingLecturerGradeSheet(classRef, c, category, subject) {
+    const sheetSnap = await lecturerGradeSheetRef(classRef, category, subject).get();
+    if (!sheetSnap.exists || !sheetSnap.data().spreadsheetId) return '';
+    try {
+      const auth = await getGoogleAuth(c.adminId), drive = google.drive({ version: 'v3', auth }), sheets = google.sheets({ version: 'v4', auth });
+      await syncLecturerGradeSheet(classRef, c, category, subject, drive, sheets, sheetSnap.data().spreadsheetId);
+      return '';
+    } catch (error) {
+      console.error('Live lecturer sheet sync failed:', error.message);
+      return ' The live marks sheet could not update; open it from the lecturer page to retry.';
+    }
+  }
   function publicClass(data) { return { name: data.name, slug: data.slug, structure: { ...classStructure(data), Notes: NOTE_SUBJECTS }, rolls: data.rolls }; }
   function cleanName(value) { return String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 180); }
   function escapeQuery(value) { return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
@@ -434,7 +491,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const marks = req.body.marks === null || req.body.marks === '' ? null : Number(req.body.marks);
       if (marks !== null && (!Number.isFinite(marks) || marks < 0 || marks > 10)) return res.status(400).json({ ok: false, error: 'Marks must be between 0 and 10.' });
       if (!await serviceAccess.classAllowed(c, res)) return;
-      const drive = await getDrive(c.adminId);
+      const auth = await getGoogleAuth(c.adminId), drive = google.drive({ version: 'v3', auth }), sheets = google.sheets({ version: 'v4', auth });
       const categoryFolderId = await locateFolder(drive, c.rootFolderId, category, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; });
       const folderId = categoryFolderId ? await locateFolder(drive, categoryFolderId, subject, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; }) : null;
       if (!folderId) return res.status(404).json({ ok: false, error: 'Presentation folder not found.' });
@@ -442,11 +499,56 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (file.data.trashed || !(file.data.parents || []).includes(folderId) || !/\.(ppt|pptx|pdf)$/i.test(file.data.name || '')) return res.status(404).json({ ok: false, error: 'Presentation not found in this subject.' });
       const review = { completed: req.body.completed, marks, updatedAt: new Date(), updatedByEmail: lecturer.email, updatedByName: lecturer.name || '' };
       await d.ref.collection('submissionReviews').doc(fileId).set(review);
-      res.set('Cache-Control', 'no-store').json({ ok: true, review: { completed: review.completed, marks: review.marks, reviewedBy: review.updatedByName || review.updatedByEmail } });
+      let sheetSyncWarning = '';
+      const sheetSnap = await lecturerGradeSheetRef(d.ref, category, subject).get();
+      if (sheetSnap.exists && sheetSnap.data().spreadsheetId) {
+        try { await syncLecturerGradeSheet(d.ref, c, category, subject, drive, sheets, sheetSnap.data().spreadsheetId); }
+        catch (syncError) { console.error('Live lecturer sheet sync failed:', syncError.message); sheetSyncWarning = ' Review saved, but the live sheet could not be updated. Use the sheet button to retry.'; }
+      }
+      res.set('Cache-Control', 'no-store').json({ ok: true, review: { completed: review.completed, marks: review.marks, reviewedBy: review.updatedByName || review.updatedByEmail }, sheetSyncWarning });
     } catch (error) {
       if (error.code === 404 || error.response?.status === 404) return res.status(404).json({ ok: false, error: 'Presentation not found.' });
       console.error('Lecturer review save failed:', error.message);
       res.status(503).json({ ok: false, error: 'Could not save this review. Check class Drive access and try again.' });
+    }
+  });
+  app.post('/api/lecturer/classes/:slug/grade-sheet', ready, requireSameOrigin, async (req, res) => {
+    try {
+      const lecturer = await currentLecturer(req);
+      if (!lecturer) return res.status(401).json({ ok: false, error: 'Lecturer sign-in required.' });
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data(), category = String(req.body.category || ''), subject = String(req.body.subject || '');
+      if (!classStructure(c)?.[category]?.includes(subject) || category === 'Notes') return res.status(400).json({ ok: false, error: 'Choose a class category and subject with presentations.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const auth = await getGoogleAuth(c.adminId), drive = google.drive({ version: 'v3', auth }), sheets = google.sheets({ version: 'v4', auth });
+      const sheetRef = lecturerGradeSheetRef(d.ref, category, subject), sheetSnap = await sheetRef.get();
+      let sheetId = sheetSnap.data()?.spreadsheetId, url = sheetSnap.data()?.url, created = false;
+      if (sheetId) {
+        try {
+          const existing = await drive.files.get({ fileId: sheetId, fields: 'id,mimeType,trashed,webViewLink' });
+          if (existing.data.trashed || existing.data.mimeType !== 'application/vnd.google-apps.spreadsheet') sheetId = '';
+          else url = existing.data.webViewLink || url;
+        } catch (error) { if (error.code === 404 || error.response?.status === 404) sheetId = ''; else throw error; }
+      }
+      if (!sheetId) {
+        const createdFile = await drive.files.create({ requestBody: { name: `${c.name} · ${category} · ${subject} · Lecturer Marks`, mimeType: 'application/vnd.google-apps.spreadsheet' }, fields: 'id,webViewLink' });
+        sheetId = createdFile.data.id; url = createdFile.data.webViewLink || `https://docs.google.com/spreadsheets/d/${sheetId}/edit`; created = true;
+        await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId, requestBody: { requests: [
+          { updateSheetProperties: { properties: { sheetId: 0, title: 'Marks', gridProperties: { frozenRowCount: 4 } }, fields: 'title,gridProperties.frozenRowCount' } },
+          { repeatCell: { range: { sheetId: 0, startRowIndex: 3, endRowIndex: 4 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.91, green: 0.94, blue: 0.98 }, textFormat: { bold: true } } }, fields: 'userEnteredFormat(backgroundColor,textFormat)' } }
+        ] } });
+        await sheetRef.set({ spreadsheetId: sheetId, url, category, subject, createdAt: new Date(), createdBy: lecturer.email });
+      }
+      const permissions = await drive.permissions.list({ fileId: sheetId, fields: 'permissions(id,type,emailAddress,role)' });
+      const hasAccess = (permissions.data.permissions || []).some(permission => String(permission.emailAddress || '').toLowerCase() === lecturer.email.toLowerCase());
+      if (!hasAccess) await drive.permissions.create({ fileId: sheetId, requestBody: { type: 'user', role: 'reader', emailAddress: lecturer.email }, sendNotificationEmail: false, fields: 'id' });
+      await syncLecturerGradeSheet(d.ref, c, category, subject, drive, sheets, sheetId);
+      res.set('Cache-Control', 'no-store').json({ ok: true, created, url });
+    } catch (error) {
+      console.error('Lecturer grade sheet request failed:', error.message);
+      const message = /has not been used|disabled|not enabled/i.test(error.message || '') ? 'Google Sheets API is not enabled for this app yet. Ask the app owner to enable it in Google Cloud.' : 'Could not create or update the live marks sheet. Check Google Drive access and try again.';
+      res.status(503).json({ ok: false, error: message });
     }
   });
   app.post('/api/lecturer/classes/:slug/notes', ready, requireSameOrigin, async (req, res, next) => {
@@ -879,7 +981,8 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         catch (e) { console.error('Public presentation sharing failed:', e.message); }
       }
       await submissionRef.set({ status: 'complete', driveFileId: result.data.id, updatedAt: new Date() }, { merge: true });
-      res.json({ ok: true, message: 'PPT uploaded successfully.', fileName: result.data.name, driveUrl: result.data.webViewLink || `https://drive.google.com/file/d/${result.data.id}/view` });
+      const sheetSyncWarning = await syncExistingLecturerGradeSheet(d.ref, c, category, subject);
+      res.json({ ok: true, message: 'PPT uploaded successfully.', fileName: result.data.name, driveUrl: result.data.webViewLink || `https://drive.google.com/file/d/${result.data.id}/view`, sheetSyncWarning });
     } catch (e) {
       console.error('Multi-admin upload:', e.message);
       if (submissionRef && reservationToken) {

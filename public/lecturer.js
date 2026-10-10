@@ -50,7 +50,7 @@ function makeSubmissionRow(file, classData, category, subject) {
         body: JSON.stringify({ category, subject, completed: completed.checked, marks: marks.value === '' ? null : Number(marks.value) })
       });
       file.completed = data.review.completed; file.marks = data.review.marks; file.reviewedBy = data.review.reviewedBy;
-      status.textContent = `Saved${file.reviewedBy ? ` by ${file.reviewedBy}` : ''}.`;
+      status.textContent = `Saved${file.reviewedBy ? ` by ${file.reviewedBy}` : ''}.${data.sheetSyncWarning || ''}`;
     } catch (error) { status.textContent = error.message; }
     finally { save.disabled = false; }
   };
@@ -83,6 +83,7 @@ $('subjectSelect').onchange = async () => {
   const c = currentClass(), category = $('categorySelect').value, subject = $('subjectSelect').value;
   if (!c || !subject) return;
   $('results').hidden = true; $('notesPanel').hidden = category !== 'Notes';
+  $('gradeSheetLink').hidden = true; $('gradeSheetStatus').textContent = '';
   if (category === 'Notes') return;
   try {
     const data = await api(`/api/lecturer/classes/${encodeURIComponent(c.slug)}/submissions?category=${encodeURIComponent(category)}&subject=${encodeURIComponent(subject)}`);
@@ -93,6 +94,24 @@ $('subjectSelect').onchange = async () => {
     if (!data.submissions.length) { const empty = document.createElement('li'); empty.textContent = 'No presentations submitted for this subject yet.'; list.append(empty); }
     $('results').hidden = false;
   } catch (error) { $('missingRolls').textContent = error.message; $('results').hidden = false; }
+};
+$('gradeSheetButton').onclick = async () => {
+  const c = currentClass(), category = $('categorySelect').value, subject = $('subjectSelect').value;
+  if (!c || !subject || category === 'Notes') return;
+  const newWindow = window.open('about:blank', '_blank');
+  const button = $('gradeSheetButton'), status = $('gradeSheetStatus');
+  button.disabled = true; status.textContent = 'Creating or syncing the live sheet…';
+  try {
+    const data = await api(`/api/lecturer/classes/${encodeURIComponent(c.slug)}/grade-sheet`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, subject })
+    });
+    const url = new URL(data.url);
+    if (url.origin !== 'https://docs.google.com' || !url.pathname.includes('/spreadsheets/')) throw new Error('The sheet link could not be verified.');
+    $('gradeSheetLink').href = url.href; $('gradeSheetLink').hidden = false;
+    if (newWindow) { newWindow.opener = null; newWindow.location.replace(url.href); }
+    status.textContent = 'Live sheet synced. Export an Excel copy from File → Download → Microsoft Excel.';
+  } catch (error) { if (newWindow) newWindow.close(); status.textContent = error.message; }
+  finally { button.disabled = false; }
 };
 $('notesForm').onsubmit = async event => {
   event.preventDefault(); const c = currentClass(), status = $('notesStatus'), form = event.currentTarget;
