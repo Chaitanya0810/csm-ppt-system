@@ -406,6 +406,8 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         } while (pageToken);
       }
       const rolls = [...(c.rolls || [])].sort((a, b) => b.length - a.length), submitted = new Set();
+      const reviewSnapshots = await d.ref.collection('submissionReviews').get();
+      const reviews = Object.fromEntries(reviewSnapshots.docs.map(doc => [doc.id, doc.data()]));
       const submissions = files.map(file => {
         let rest = file.name.toUpperCase(); const matched = [];
         while (true) {
@@ -413,10 +415,39 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
           if (!roll || matched.includes(roll)) break;
           matched.push(roll); submitted.add(roll); rest = rest.slice(roll.length + 1);
         }
-        return { name: file.name, createdAt: file.createdTime || null, rolls: matched };
+        const review = reviews[file.id] || {};
+        return { id: file.id, name: file.name, createdAt: file.createdTime || null, rolls: matched, completed: review.completed === true, marks: Number.isFinite(review.marks) ? review.marks : null, reviewedBy: review.updatedByName || review.updatedByEmail || null };
       });
       res.set('Cache-Control', 'no-store').json({ ok: true, category, subject, totalStudents: c.rolls.length, submittedRolls: [...submitted].sort(), missingRolls: c.rolls.filter(roll => !submitted.has(roll)), submissions });
     } catch (error) { console.error('Lecturer submission lookup failed:', error.message); res.status(503).json({ ok: false, error: 'Could not load submissions. Check class Drive access and try again.' }); }
+  });
+  app.put('/api/lecturer/classes/:slug/submissions/:fileId/review', ready, requireSameOrigin, async (req, res) => {
+    try {
+      const lecturer = await currentLecturer(req);
+      if (!lecturer) return res.status(401).json({ ok: false, error: 'Lecturer sign-in required.' });
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data(), category = String(req.body.category || ''), subject = String(req.body.subject || ''), fileId = String(req.params.fileId || '');
+      if (!/^[A-Za-z0-9_-]{10,100}$/.test(fileId)) return res.status(400).json({ ok: false, error: 'Invalid presentation.' });
+      if (!classStructure(c)?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid category and subject.' });
+      if (typeof req.body.completed !== 'boolean') return res.status(400).json({ ok: false, error: 'Choose whether the presentation is completed.' });
+      const marks = req.body.marks === null || req.body.marks === '' ? null : Number(req.body.marks);
+      if (marks !== null && (!Number.isFinite(marks) || marks < 0 || marks > 100)) return res.status(400).json({ ok: false, error: 'Marks must be between 0 and 100.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const drive = await getDrive(c.adminId);
+      const categoryFolderId = await locateFolder(drive, c.rootFolderId, category, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; });
+      const folderId = categoryFolderId ? await locateFolder(drive, categoryFolderId, subject, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; }) : null;
+      if (!folderId) return res.status(404).json({ ok: false, error: 'Presentation folder not found.' });
+      const file = await drive.files.get({ fileId, fields: 'id,name,parents,trashed' });
+      if (file.data.trashed || !(file.data.parents || []).includes(folderId) || !/\.(ppt|pptx|pdf)$/i.test(file.data.name || '')) return res.status(404).json({ ok: false, error: 'Presentation not found in this subject.' });
+      const review = { completed: req.body.completed, marks, updatedAt: new Date(), updatedByEmail: lecturer.email, updatedByName: lecturer.name || '' };
+      await d.ref.collection('submissionReviews').doc(fileId).set(review);
+      res.set('Cache-Control', 'no-store').json({ ok: true, review: { completed: review.completed, marks: review.marks, reviewedBy: review.updatedByName || review.updatedByEmail } });
+    } catch (error) {
+      if (error.code === 404 || error.response?.status === 404) return res.status(404).json({ ok: false, error: 'Presentation not found.' });
+      console.error('Lecturer review save failed:', error.message);
+      res.status(503).json({ ok: false, error: 'Could not save this review. Check class Drive access and try again.' });
+    }
   });
   app.post('/api/lecturer/classes/:slug/notes', ready, requireSameOrigin, async (req, res, next) => {
     try {
