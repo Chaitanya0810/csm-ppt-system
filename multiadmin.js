@@ -432,7 +432,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       if (!classStructure(c)?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid category and subject.' });
       if (typeof req.body.completed !== 'boolean') return res.status(400).json({ ok: false, error: 'Choose whether the presentation is completed.' });
       const marks = req.body.marks === null || req.body.marks === '' ? null : Number(req.body.marks);
-      if (marks !== null && (!Number.isFinite(marks) || marks < 0 || marks > 100)) return res.status(400).json({ ok: false, error: 'Marks must be between 0 and 100.' });
+      if (marks !== null && (!Number.isFinite(marks) || marks < 0 || marks > 10)) return res.status(400).json({ ok: false, error: 'Marks must be between 0 and 10.' });
       if (!await serviceAccess.classAllowed(c, res)) return;
       const drive = await getDrive(c.adminId);
       const categoryFolderId = await locateFolder(drive, c.rootFolderId, category, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; });

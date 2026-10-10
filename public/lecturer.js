@@ -16,7 +16,7 @@ function makeSubmissionRow(file, classData, category, subject) {
   item.className = 'submission';
   const title = document.createElement('div');
   title.className = 'submission-title';
-  title.textContent = `${file.rolls.join(', ') || 'Roll number not identified'} · ${file.name}`;
+  title.textContent = file.rolls.join(', ') || 'Roll number not identified';
   const form = document.createElement('form');
   form.className = 'review-form';
   const completedLabel = document.createElement('label');
@@ -27,9 +27,9 @@ function makeSubmissionRow(file, classData, category, subject) {
   completedLabel.append(completed, document.createTextNode('Completed'));
   const marksLabel = document.createElement('label');
   marksLabel.className = 'marks-control';
-  marksLabel.append(document.createTextNode('Marks (out of 100)'));
+  marksLabel.append(document.createTextNode('Marks (out of 10)'));
   const marks = document.createElement('input');
-  marks.type = 'number'; marks.min = '0'; marks.max = '100'; marks.step = '0.5'; marks.inputMode = 'decimal';
+  marks.type = 'number'; marks.min = '0'; marks.max = '10'; marks.step = '0.5'; marks.inputMode = 'decimal';
   marks.placeholder = 'Not marked'; marks.value = file.marks ?? '';
   marksLabel.append(marks);
   const save = document.createElement('button');
@@ -40,8 +40,8 @@ function makeSubmissionRow(file, classData, category, subject) {
   form.append(completedLabel, marksLabel, save, status);
   form.onsubmit = async event => {
     event.preventDefault();
-    if (marks.value !== '' && (!Number.isFinite(Number(marks.value)) || Number(marks.value) < 0 || Number(marks.value) > 100)) {
-      status.textContent = 'Enter marks from 0 to 100.'; marks.focus(); return;
+    if (marks.value !== '' && (!Number.isFinite(Number(marks.value)) || Number(marks.value) < 0 || Number(marks.value) > 10)) {
+      status.textContent = 'Enter marks from 0 to 10.'; marks.focus(); return;
     }
     save.disabled = true; status.textContent = 'Saving…';
     try {
