@@ -4,10 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CSM PPT Submission</title>
-  <meta http-equiv="refresh" content="0;url=/student.html?class=0ByADJgBHSrnWtxN">
   <script>
     const classCode = new URLSearchParams(location.search).get("class") || "0ByADJgBHSrnWtxN";
-    location.replace(`/student.html?class=${encodeURIComponent(classCode)}`);
+    fetch('/api/lecturer/me').then(r=>r.json()).then(me=>location.replace(me.signedIn?'/lecturer.html':`/student.html?class=${encodeURIComponent(classCode)}`)).catch(()=>location.replace(`/student.html?class=${encodeURIComponent(classCode)}`));
   </script>
 </head>
 <body>

@@ -98,7 +98,7 @@ async function loadPPTs() {
         top.append(icon);
         const title = document.createElement('h3'); title.className = 'note-title'; title.textContent = item.title;
         const original = document.createElement('p'); original.className = 'presentation-hint'; original.textContent = item.originalName;
-        const roll = document.createElement('p'); roll.className = 'presentation-hint'; roll.textContent = `Uploaded by ${item.roll || 'Student'}`;
+        const roll = document.createElement('p'); roll.className = 'presentation-hint'; roll.textContent = item.uploaderRole === 'lecturer' ? `Uploaded by lecturer${item.uploadedBy ? ` · ${item.uploadedBy}` : ''}` : `Uploaded by ${item.roll || 'Student'}`;
         const noteUrl = `/api/class/${encodeURIComponent(classSlug)}/notes/${encodeURIComponent(item.id)}/download?subject=${encodeURIComponent(subject)}`;
         const download = document.createElement('a'); download.className = 'open';
         download.href = noteUrl;

@@ -12,8 +12,11 @@ The app now uses one Google OAuth client for sign-in, while each admin grants th
 Use a Google OAuth **Web application** client. Add this exact Authorized redirect URI, replacing the host with the Render URL serving this app:
 
 ```
-https://YOUR-RENDER-SERVICE.onrender.com/auth/google/callback
+https://csm-ppt-system.onrender.com/auth/google/callback
+https://csm-ppt-system.onrender.com/auth/lecturer/callback
 ```
+
+Also add `http://localhost:3000/auth/google/callback` and `http://localhost:3000/auth/lecturer/callback` for local development. Lecturer sign-in uses the second callback.
 
 The Google OAuth consent screen must allow the admins who will use the app. This app requests Google Drive access because admins choose a folder and the app creates folders and files within it.
 
@@ -44,6 +47,8 @@ Never commit these values or paste them into source files. Keep a secure backup 
 After saving the variables, let Render redeploy. Open `/admin.html` on the Render URL and sign in with Google.
 
 The account matching `SUPER_ADMIN_EMAIL` sees all admins and classes, can manage any class and view its submissions, and can approve, disable, re-enable, or revoke admin access. New admins stay pending until the owner approves them. Disabling or revoking an admin removes the app's saved Drive token and active sessions; the admin must sign in again after approval or re-enabling. This grants app-level control only; Google Drive and Cloud Console permissions remain governed by Google.
+
+To grant lecturer access, open **Admin → App owner controls**, add the lecturer's Google email under **Lecturer email access**, and save. Listed accounts can sign in at `/lecturer.html`, choose any class, see PPT submission counts and missing roll numbers, and upload class notes. Removing an email revokes access on the next API request. Lecturers do not receive admin controls.
 
 For request emails, configure SMTP variables in Render. With Gmail, create an App Password from the owner account's Google Account security settings (2-Step Verification must be on), then put it in `SMTP_APP_PASSWORD` in Render. Never paste it into chat or commit it. If SMTP is not configured, requests remain visible in App owner controls, but no email is sent.
 

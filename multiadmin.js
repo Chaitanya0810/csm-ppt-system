@@ -11,6 +11,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_COOKIE = 'csm_admin_session';
+const LECTURER_TOKEN_COOKIE = 'csm_lecturer_session';
 const NOTE_SUBJECTS = ['JAVA', 'SE', 'DBMS', 'MSF', 'GS', 'COA', 'NODE-JS-LAB', 'CM-LAB'];
 const NOTE_FILE_TYPES = new Map([
   ['.pdf', ['application/pdf']], ['.doc', ['application/msword', 'application/x-ole-storage']],
@@ -127,6 +128,18 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     const admin = await db.collection('admins').doc(adminId).get();
     if (!admin.exists || admin.data().disabled === true) return null;
     return adminId;
+  }
+  async function lecturerAllowed(email) {
+    const snap = await db.collection('settings').doc('lecturers').get();
+    return (snap.data()?.emails || []).includes(String(email || '').trim().toLowerCase());
+  }
+  async function currentLecturer(req) {
+    const cookie = parseCookies(req.headers.cookie)[LECTURER_TOKEN_COOKIE] || '';
+    if (!/^[A-Za-z0-9_-]{40,}$/.test(cookie)) return null;
+    const snap = await db.collection('lecturerSessions').doc(cookie).get();
+    if (!snap.exists || snap.data().expiresAt.toMillis() < Date.now()) return null;
+    const lecturer = { sessionId: cookie, ...snap.data() };
+    return await lecturerAllowed(lecturer.email) ? lecturer : null;
   }
   const requireAdmin = (req, res, next) => ready(req, res, async () => {
     try {
@@ -317,6 +330,127 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
   // Keep the isolated load-test deployment on its existing no-Drive endpoints.
   if (loadTestMode) return;
 
+  app.get('/auth/lecturer/google', ready, async (req, res) => {
+    try {
+      const state = crypto.randomBytes(24).toString('base64url'), browserBinding = crypto.randomBytes(32).toString('base64url');
+      await db.collection('oauthStates').doc(state).set({ flow: 'lecturer', expiresAt: new Date(Date.now() + 10 * 60 * 1000), browserBindingHash: oauthBindingHash(browserBinding) });
+      const redirectUri = `${appBase(req)}/auth/lecturer/callback`;
+      res.setHeader('Set-Cookie', `csm_lecturer_oauth_binding=${browserBinding}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/auth/lecturer/callback; Max-Age=600`);
+      res.redirect(oauthClient(redirectUri).generateAuthUrl({ access_type: 'online', prompt: 'select_account', scope: ['openid', 'email'], state }));
+    } catch (error) { console.error('Lecturer sign-in setup failed:', error.message); res.status(503).send('Lecturer sign-in is temporarily unavailable.'); }
+  });
+  app.get('/auth/lecturer/callback', ready, async (req, res) => {
+    try {
+      const stateRef = db.collection('oauthStates').doc(String(req.query.state || '')), state = await stateRef.get();
+      const browserBinding = parseCookies(req.headers.cookie).csm_lecturer_oauth_binding || '';
+      if (!state.exists || state.data().flow !== 'lecturer' || state.data().expiresAt.toMillis() < Date.now() || !timingSafeStringEqual(state.data().browserBindingHash, oauthBindingHash(browserBinding))) return res.status(400).send('Sign-in expired. Return to lecturer sign-in and try again.');
+      await stateRef.delete();
+      const redirectUri = `${appBase(req)}/auth/lecturer/callback`, { tokens } = await oauthClient(redirectUri).getToken(String(req.query.code || ''));
+      const auth = oauthClient(redirectUri); auth.setCredentials(tokens);
+      const userInfo = await google.oauth2({ version: 'v2', auth }).userinfo.get(), email = String(userInfo.data.email || '').trim().toLowerCase();
+      if (userInfo.data.verified_email !== true || !email) return res.status(403).send('Google could not verify this email address.');
+      if (!await lecturerAllowed(email)) return res.status(403).send('This Google account is not on the lecturer email list. Ask the app owner to add it.');
+      const sessionId = crypto.randomBytes(32).toString('base64url');
+      await db.collection('lecturerSessions').doc(sessionId).set({ email, googleId: userInfo.data.id, name: userInfo.data.name || '', expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), createdAt: new Date() });
+      res.setHeader('Set-Cookie', [
+        `csm_lecturer_oauth_binding=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/auth/lecturer/callback; Max-Age=0`,
+        `${LECTURER_TOKEN_COOKIE}=${encodeURIComponent(sessionId)}; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/api/lecturer; Max-Age=1209600`
+      ]);
+      res.redirect('/lecturer.html');
+    } catch (error) { console.error('Lecturer OAuth callback failed:', error.message); res.status(500).send('Lecturer sign-in failed. Please retry.'); }
+  });
+  app.get('/api/lecturer/me', ready, async (req, res) => {
+    try { const lecturer = await currentLecturer(req); res.set('Cache-Control', 'no-store').json({ ok: true, signedIn: Boolean(lecturer), ...(lecturer ? { email: lecturer.email, name: lecturer.name } : {}) }); }
+    catch (error) { console.error('Lecturer session lookup failed:', error.message); res.status(503).json({ ok: false, error: 'Could not check lecturer sign-in right now.' }); }
+  });
+  app.post('/api/lecturer/logout', ready, requireSameOrigin, async (req, res) => {
+    const lecturer = await currentLecturer(req);
+    if (lecturer) await db.collection('lecturerSessions').doc(lecturer.sessionId).delete().catch(() => {});
+    res.append('Set-Cookie', `${LECTURER_TOKEN_COOKIE}=; HttpOnly; ${req.secure ? 'Secure; ' : ''}SameSite=Lax; Path=/api/lecturer; Max-Age=0`);
+    res.json({ ok: true });
+  });
+  app.get('/api/lecturer/classes', ready, async (req, res) => {
+    try {
+      const lecturer = await currentLecturer(req);
+      if (!lecturer) return res.status(401).json({ ok: false, error: 'Sign in with an approved lecturer email first.' });
+      const q = await db.collection('classes').get(), classes = [];
+      for (const doc of q.docs) {
+        const c = doc.data();
+        if (!await serviceAccess.classAllowed(c, res)) return;
+        classes.push({ slug: c.slug, name: c.name, structure: { ...classStructure(c), Notes: NOTE_SUBJECTS } });
+      }
+      classes.sort((a, b) => a.name.localeCompare(b.name));
+      res.set('Cache-Control', 'no-store').json({ ok: true, lecturer: { email: lecturer.email, name: lecturer.name }, classes });
+    } catch (error) { console.error('Lecturer class list failed:', error.message); res.status(503).json({ ok: false, error: 'Could not load classes.' }); }
+  });
+  app.get('/api/lecturer/classes/:slug/submissions', ready, async (req, res) => {
+    try {
+      if (!await currentLecturer(req)) return res.status(401).json({ ok: false, error: 'Lecturer sign-in required.' });
+      const d = await classDoc(req.params.slug);
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data(), category = String(req.query.category || ''), subject = String(req.query.subject || '');
+      if (!classStructure(c)?.[category]?.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid category and subject.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const drive = await getDrive(c.adminId);
+      const categoryId = await locateFolder(drive, c.rootFolderId, category, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; });
+      const folderId = categoryId ? await locateFolder(drive, categoryId, subject, false).catch(error => { if (/Folder not found/.test(error.message)) return null; throw error; }) : null;
+      const files = [];
+      if (folderId) {
+        let pageToken;
+        do {
+          const page = await drive.files.list({ q: `'${folderId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,createdTime)', pageSize: 1000, pageToken, orderBy: 'name' });
+          files.push(...(page.data.files || []).filter(file => /\.(ppt|pptx|pdf)$/i.test(file.name)));
+          pageToken = page.data.nextPageToken;
+        } while (pageToken);
+      }
+      const rolls = [...(c.rolls || [])].sort((a, b) => b.length - a.length), submitted = new Set();
+      const submissions = files.map(file => {
+        let rest = file.name.toUpperCase(); const matched = [];
+        while (true) {
+          const roll = rolls.find(item => rest.startsWith(`${item}_`) || rest.startsWith(`${item}.`));
+          if (!roll || matched.includes(roll)) break;
+          matched.push(roll); submitted.add(roll); rest = rest.slice(roll.length + 1);
+        }
+        return { name: file.name, createdAt: file.createdTime || null, rolls: matched };
+      });
+      res.set('Cache-Control', 'no-store').json({ ok: true, category, subject, totalStudents: c.rolls.length, submittedRolls: [...submitted].sort(), missingRolls: c.rolls.filter(roll => !submitted.has(roll)), submissions });
+    } catch (error) { console.error('Lecturer submission lookup failed:', error.message); res.status(503).json({ ok: false, error: 'Could not load submissions. Check class Drive access and try again.' }); }
+  });
+  app.post('/api/lecturer/classes/:slug/notes', ready, requireSameOrigin, async (req, res, next) => {
+    try {
+      if (!await currentLecturer(req)) return res.status(401).json({ ok: false, error: 'Lecturer sign-in required.' });
+      if (!await rateLimitUpload(req)) return res.status(429).json({ ok: false, error: 'Too many attempts. Please try again later.' });
+      notesUpload.single('file')(req, res, error => {
+        if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : (error.statusCode || 400)).json({ ok: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Notes files must be 25 MB or smaller.' : error.message });
+        next();
+      });
+    } catch (error) { res.status(503).json({ ok: false, error: 'Notes uploads are temporarily unavailable.' }); }
+  }, async (req, res) => {
+    let temp = req.file?.path, drive, uploaded;
+    try {
+      const lecturer = await currentLecturer(req), d = await classDoc(req.params.slug);
+      if (!lecturer) return res.status(401).json({ ok: false, error: 'Lecturer sign-in required.' });
+      if (!d) return res.status(404).json({ ok: false, error: 'Class not found.' });
+      const c = d.data(), subject = String(req.body.subject || ''), title = String(req.body.title || '').trim();
+      if (!NOTE_SUBJECTS.includes(subject)) return res.status(400).json({ ok: false, error: 'Choose a valid notes subject.' });
+      if (!title || title.length > 80) return res.status(400).json({ ok: false, error: 'Enter a note title of up to 80 characters.' });
+      if (!req.file) return res.status(400).json({ ok: false, error: 'Choose a file to upload.' });
+      const extension = path.extname(req.file.originalname).toLowerCase();
+      if (!await noteFileSignatureIsValid(req.file.path, extension)) return res.status(400).json({ ok: false, error: 'The file contents do not match its file type.' });
+      if (!await serviceAccess.classAllowed(c, res)) return;
+      const admin = await db.collection('admins').doc(c.adminId).get();
+      if (!admin.exists || admin.data().disabled === true || admin.data().serviceLocked === true || admin.data().approved === false) return sendLocked(res);
+      drive = await getDrive(c.adminId);
+      const folderId = await noteFolder(drive, c, subject), originalName = cleanName(path.basename(req.file.originalname));
+      uploaded = await drive.files.create({ requestBody: { name: cleanName(`Lecturer_${title}_${originalName}`), parents: [folderId], mimeType: req.file.mimetype }, media: { mimeType: req.file.mimetype, body: fs.createReadStream(req.file.path) }, fields: 'id,name' });
+      if (!await serviceAccess.classAllowed(c, res)) { await drive.files.delete({ fileId: uploaded.data.id }).catch(() => {}); uploaded = null; return; }
+      const ref = notesForClass(d.id, subject).doc(), createdAt = new Date();
+      await ref.set({ fileId: uploaded.data.id, subject, title, originalName, contentType: req.file.mimetype, size: req.file.size, roll: '', uploadedBy: lecturer.email, uploadedByName: lecturer.name || lecturer.email, uploaderRole: 'lecturer', createdAt });
+      res.status(201).json({ ok: true, note: { id: ref.id, title, originalName, size: req.file.size, createdAt: createdAt.toISOString() } });
+    } catch (error) { console.error('Lecturer note upload failed:', error.message); if (uploaded?.data?.id && drive) await drive.files.delete({ fileId: uploaded.data.id }).catch(() => {}); res.status(503).json({ ok: false, error: 'Could not upload the note. Check class Drive access and try again.' }); }
+    finally { if (temp) fs.promises.unlink(temp).catch(() => {}); }
+  });
+
   app.get('/auth/google', ready, async (req, res) => {
     const state = crypto.randomBytes(24).toString('base64url');
     const browserBinding = crypto.randomBytes(32).toString('base64url');
@@ -391,6 +525,17 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const a = doc.data();
       return { id: doc.id, email: a.email || '', name: a.name || '', serviceLocked: a.serviceLocked === true, owner: String(a.email || '').toLowerCase() === ownerEmail, disabled: a.disabled === true, approved: a.approved === true || String(a.email || '').toLowerCase() === ownerEmail, classCount: counts.get(doc.id) || 0 };
     }) });
+  });
+  app.get('/api/owner/lecturers', requireOwner, async (req, res) => {
+    const snap = await db.collection('settings').doc('lecturers').get();
+    res.set('Cache-Control', 'no-store').json({ ok: true, emails: snap.data()?.emails || [] });
+  });
+  app.put('/api/owner/lecturers', requireSameOrigin, requireOwner, async (req, res) => {
+    const raw = Array.isArray(req.body?.emails) ? req.body.emails : String(req.body?.emails || '').split(/[\s,;]+/);
+    const emails = [...new Set(raw.map(email => String(email).trim().toLowerCase()).filter(Boolean))];
+    if (emails.length > 200 || emails.some(email => email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return res.status(400).json({ ok: false, error: 'Enter up to 200 valid email addresses.' });
+    await db.collection('settings').doc('lecturers').set({ emails, updatedAt: new Date(), updatedBy: req.adminEmail });
+    res.json({ ok: true, emails });
   });
   app.post('/api/owner/import-legacy', requireSameOrigin, requireOwner, async (req, res) => {
     try {
@@ -560,7 +705,7 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const snapshot = await notesForClass(d.id, subject).orderBy('createdAt', 'desc').get();
       const notes = snapshot.docs.map(doc => {
         const note = doc.data();
-        return { id: doc.id, roll: note.roll, title: note.title, originalName: note.originalName, size: note.size, createdAt: note.createdAt?.toDate?.().toISOString() || null };
+        return { id: doc.id, roll: note.roll, title: note.title, originalName: note.originalName, size: note.size, uploadedBy: note.uploadedByName || '', uploaderRole: note.uploaderRole || 'student', createdAt: note.createdAt?.toDate?.().toISOString() || null };
       });
       res.set('Cache-Control', 'no-store').json({ ok: true, notes });
     } catch (error) {
