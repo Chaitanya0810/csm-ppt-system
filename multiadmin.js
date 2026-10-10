@@ -252,32 +252,36 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
     }
     const reviews = await classRef.collection('submissionReviews').get();
     const byFileId = Object.fromEntries(reviews.docs.map(doc => [doc.id, doc.data()]));
-    const rolls = [...(c.rolls || [])].sort((a, b) => b.length - a.length), submitted = new Set();
-    const rows = [
-      [c.name], [`${category} · ${subject}`], [''],
-      ['Roll number', 'PPT status', 'Completion', 'Marks (out of 10)', 'Submitted at', 'Reviewed by', 'Last reviewed at']
-    ];
+    const rolls = [...(c.rolls || [])].sort((a, b) => b.length - a.length), byRoll = new Map();
+    files.sort((a, b) => String(b.createdTime || '').localeCompare(String(a.createdTime || '')));
     for (const file of files) {
       let rest = String(file.name || '').toUpperCase(); const matched = [];
       while (true) {
         const roll = rolls.find(item => rest.startsWith(`${item}_`) || rest.startsWith(`${item}.`));
         if (!roll || matched.includes(roll)) break;
-        matched.push(roll); submitted.add(roll); rest = rest.slice(roll.length + 1);
+        matched.push(roll); rest = rest.slice(roll.length + 1);
       }
       const review = byFileId[file.id] || {};
-      const submittedAt = file.createdTime || '';
-      const reviewedAt = review.updatedAt?.toDate ? review.updatedAt.toDate().toISOString() : '';
-      const reviewFields = [review.completed === true ? 'Completed' : 'Not completed', Number.isFinite(review.marks) ? review.marks : '', review.updatedByName || review.updatedByEmail || '', reviewedAt];
-      if (matched.length) for (const roll of matched) rows.push([roll, 'Submitted', ...reviewFields.slice(0, 2), submittedAt, ...reviewFields.slice(2)]);
-      else rows.push(['Roll number not identified', 'Submitted', ...reviewFields.slice(0, 2), submittedAt, ...reviewFields.slice(2)]);
+      const timestamp = review.updatedAt?.toDate ? review.updatedAt.toDate() : new Date(review.updatedAt || '');
+      let reviewedDate = '';
+      if (Number.isFinite(timestamp.getTime())) {
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(timestamp);
+        const date = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        reviewedDate = Date.UTC(Number(date.year), Number(date.month) - 1, Number(date.day)) / 86400000 + 25569;
+      }
+      for (const roll of matched) if (!byRoll.has(roll)) byRoll.set(roll, [reviewedDate, review.completed === true ? 'Completed' : 'Not completed', Number.isFinite(review.marks) ? review.marks : '']);
     }
-    for (const roll of c.rolls || []) if (!submitted.has(roll)) rows.push([roll, 'Not submitted', '', '', '', '', '']);
-    return rows;
+    return [['S. No.', 'Roll Number', 'Reviewed Date', 'Status', 'Marks (out of 10)'], ...(c.rolls || []).map((roll, index) => [index + 1, roll, ...(byRoll.get(roll) || ['', 'Not submitted', ''])])];
   }
   async function syncLecturerGradeSheet(classRef, c, category, subject, drive, sheets, sheetId) {
     const values = await lecturerGradeRows(classRef, c, category, subject, drive);
     await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: 'Marks!A:Z', requestBody: {} });
     await sheets.spreadsheets.values.update({ spreadsheetId: sheetId, range: 'Marks!A1', valueInputOption: 'RAW', requestBody: { values } });
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId, requestBody: { requests: [
+      { updateSheetProperties: { properties: { sheetId: 0, title: 'Marks', gridProperties: { frozenRowCount: 1 } }, fields: 'title,gridProperties.frozenRowCount' } },
+      { repeatCell: { range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.91, green: 0.94, blue: 0.98 }, textFormat: { bold: true } } }, fields: 'userEnteredFormat(backgroundColor,textFormat)' } },
+      { repeatCell: { range: { sheetId: 0, startRowIndex: 1, endRowIndex: Math.max(values.length, 2), startColumnIndex: 2, endColumnIndex: 3 }, cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'dd/mm/yyyy' } } }, fields: 'userEnteredFormat.numberFormat' } }
+    ] } });
   }
   async function syncExistingLecturerGradeSheet(classRef, c, category, subject) {
     const sheetSnap = await lecturerGradeSheetRef(classRef, category, subject).get();
@@ -535,8 +539,8 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
         const createdFile = await drive.files.create({ requestBody: { name: `${c.name} · ${category} · ${subject} · Lecturer Marks`, mimeType: 'application/vnd.google-apps.spreadsheet' }, fields: 'id,webViewLink' });
         sheetId = createdFile.data.id; url = createdFile.data.webViewLink || `https://docs.google.com/spreadsheets/d/${sheetId}/edit`; created = true;
         await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId, requestBody: { requests: [
-          { updateSheetProperties: { properties: { sheetId: 0, title: 'Marks', gridProperties: { frozenRowCount: 4 } }, fields: 'title,gridProperties.frozenRowCount' } },
-          { repeatCell: { range: { sheetId: 0, startRowIndex: 3, endRowIndex: 4 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.91, green: 0.94, blue: 0.98 }, textFormat: { bold: true } } }, fields: 'userEnteredFormat(backgroundColor,textFormat)' } }
+          { updateSheetProperties: { properties: { sheetId: 0, title: 'Marks', gridProperties: { frozenRowCount: 1 } }, fields: 'title,gridProperties.frozenRowCount' } },
+          { repeatCell: { range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.91, green: 0.94, blue: 0.98 }, textFormat: { bold: true } } }, fields: 'userEnteredFormat(backgroundColor,textFormat)' } }
         ] } });
         await sheetRef.set({ spreadsheetId: sheetId, url, category, subject, createdAt: new Date(), createdBy: lecturer.email });
       }
