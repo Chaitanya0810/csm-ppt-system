@@ -374,13 +374,15 @@ function createMultiAdmin(app, { port, loadTestMode, legacyConfig }) {
       const lecturer = await currentLecturer(req);
       if (!lecturer) return res.status(401).json({ ok: false, error: 'Sign in with an approved lecturer email first.' });
       const q = await db.collection('classes').get(), classes = [];
+      let unavailableCount = 0;
       for (const doc of q.docs) {
         const c = doc.data();
-        if (!await serviceAccess.classAllowed(c, res)) return;
+        const adminSnap = await db.collection('admins').doc(c.adminId).get(), admin = adminSnap.data() || {};
+        if (!adminSnap.exists || admin.disabled === true || admin.serviceLocked === true || admin.approved === false) { unavailableCount++; continue; }
         classes.push({ slug: c.slug, name: c.name, structure: { ...classStructure(c), Notes: NOTE_SUBJECTS } });
       }
       classes.sort((a, b) => a.name.localeCompare(b.name));
-      res.set('Cache-Control', 'no-store').json({ ok: true, lecturer: { email: lecturer.email, name: lecturer.name }, classes });
+      res.set('Cache-Control', 'no-store').json({ ok: true, lecturer: { email: lecturer.email, name: lecturer.name }, classes, unavailableCount });
     } catch (error) { console.error('Lecturer class list failed:', error.message); res.status(503).json({ ok: false, error: 'Could not load classes.' }); }
   });
   app.get('/api/lecturer/classes/:slug/submissions', ready, async (req, res) => {
